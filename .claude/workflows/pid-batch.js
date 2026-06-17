@@ -71,8 +71,13 @@ const batchNum = Number(parsedArgs && typeof parsedArgs === 'object' ? parsedArg
 if (!batchNum || !BATCHES[batchNum]) {
   throw new Error(`Pass args.batch as one of: ${Object.keys(BATCHES).join(', ')}`)
 }
-const tasks = BATCHES[batchNum]
-log(`Batch ${batchNum}: ${tasks.map(t => t.id).join(', ')}`)
+const skip = (parsedArgs && parsedArgs.skip) || []
+const only = (parsedArgs && parsedArgs.only) || null
+let tasks = BATCHES[batchNum]
+if (only) tasks = tasks.filter(t => only.includes(t.id))
+if (skip.length) tasks = tasks.filter(t => !skip.includes(t.id))
+if (!tasks.length) throw new Error(`No tasks left in batch ${batchNum} after only/skip filter`)
+log(`Batch ${batchNum}: ${tasks.map(t => t.id).join(', ')}${skip.length ? ` (skipping ${skip.join(', ')})` : ''}`)
 
 // Scaffold (batch 1) must land before its siblings can typecheck.
 const first = tasks.find(t => t.first)
