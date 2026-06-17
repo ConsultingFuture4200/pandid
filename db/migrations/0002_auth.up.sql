@@ -1,9 +1,9 @@
 -- DEV-1134 — Web-login auth tables (FR-20).
 --
--- Owned by the auth task. The `accounts` table itself is owned by the schema
+-- Owned by the auth task. The `account` table itself is owned by the schema
 -- task (DEV-1132, migration 0001); this migration only adds the auth-specific
--- tables and references accounts(id) by foreign key. It must run after the
--- accounts table exists.
+-- tables and references account(id) by foreign key. It must run after the
+-- account table exists.
 --
 -- Credentials live in their own table (not on the account row) so the account
 -- identity contract stays auth-mechanism-agnostic — the MCP OAuth path
@@ -11,7 +11,7 @@
 
 -- One password credential per account.
 CREATE TABLE IF NOT EXISTS auth_credentials (
-  account_id    UUID PRIMARY KEY REFERENCES accounts (id) ON DELETE CASCADE,
+  account_id    UUID PRIMARY KEY REFERENCES account (id) ON DELETE CASCADE,
   -- Login email, normalized lowercase. Unique across all accounts.
   email         TEXT NOT NULL UNIQUE,
   -- Self-describing scrypt hash: scrypt$N$r$p$saltHex$hashHex. Never plaintext.
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS auth_credentials (
 -- server stores its SHA-256 hash so a leaked row cannot be replayed.
 CREATE TABLE IF NOT EXISTS sessions (
   id         UUID PRIMARY KEY,
-  account_id UUID NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+  account_id UUID NOT NULL REFERENCES account (id) ON DELETE CASCADE,
   -- Hex SHA-256 of the opaque session token (64 chars). Unique per session.
   token_hash CHAR(64) NOT NULL UNIQUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
