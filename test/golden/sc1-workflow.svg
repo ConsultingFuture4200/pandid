@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 520" data-scene="sc1-workflow">
+  <rect x="75" y="50" width="30" height="80" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <rect x="215" y="50" width="30" height="80" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <rect x="355" y="50" width="30" height="80" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <rect x="495" y="50" width="30" height="80" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <rect x="235" y="250" width="70" height="50" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <rect x="235" y="410" width="70" height="50" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <polyline points="90,130 270,250" fill="none" stroke="#1e1e1e" stroke-width="2" data-connection="bound"/>
+  <circle cx="90" cy="130" r="3" fill="#1e1e1e" stroke="none" data-port="source"/>
+  <circle cx="270" cy="250" r="3" fill="#1e1e1e" stroke="none" data-port="target"/>
+  <polyline points="230,130 270,250" fill="none" stroke="#1e1e1e" stroke-width="2" data-connection="bound"/>
+  <circle cx="230" cy="130" r="3" fill="#1e1e1e" stroke="none" data-port="source"/>
+  <circle cx="270" cy="250" r="3" fill="#1e1e1e" stroke="none" data-port="target"/>
+  <polyline points="370,130 270,250" fill="none" stroke="#1e1e1e" stroke-width="2" data-connection="bound"/>
+  <circle cx="370" cy="130" r="3" fill="#1e1e1e" stroke="none" data-port="source"/>
+  <circle cx="270" cy="250" r="3" fill="#1e1e1e" stroke="none" data-port="target"/>
+  <polyline points="510,130 270,250" fill="none" stroke="#1e1e1e" stroke-width="2" data-connection="bound"/>
+  <circle cx="510" cy="130" r="3" fill="#1e1e1e" stroke="none" data-port="source"/>
+  <circle cx="270" cy="250" r="3" fill="#1e1e1e" stroke="none" data-port="target"/>
+  <polyline points="270,300 270,410" fill="none" stroke="#1e1e1e" stroke-width="2" data-connection="bound"/>
+  <circle cx="270" cy="300" r="3" fill="#1e1e1e" stroke="none" data-port="source"/>
+  <circle cx="270" cy="410" r="3" fill="#1e1e1e" stroke="none" data-port="target"/>
+</svg>
