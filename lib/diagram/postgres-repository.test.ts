@@ -156,15 +156,12 @@ describe("PostgresDiagramRepository", () => {
     expect(await repo.deleteDiagram({ accountId, diagramId: created.id })).toBe(false);
   });
 
-  // CROSS-TASK CONFLICT (surfaced to lead): FR-17 requires "user deletes
-  // diagrams", but the DEV-1132 append-only trigger on diagram_version blocks
-  // DELETE *even via cascade*. So deleting a diagram that has saved versions
-  // currently fails at the DB. The repository code is correct; the fix belongs
-  // in the DEV-1132 schema (e.g. allow cascade delete when the parent diagram
-  // is itself being deleted, while still blocking standalone version DELETE).
-  // This test pins the present behavior so the regression is visible and the
-  // conflict is not silently papered over. See the agent report / HUMAN note.
-  it("currently CANNOT delete a versioned diagram — DEV-1132 trigger blocks cascade (FR-17 gap)", async () => {
+  // CROSS-TASK RESOLUTION (FR-17): deleting a diagram with saved versions must
+  // cascade through the immutable versions. The DEV-1132 append-only trigger now
+  // permits DELETE only during a whole-diagram teardown (transaction-local
+  // `pid.allow_version_cascade` flag set by deleteDiagram). Standalone version
+  // DELETE and ALL UPDATEs stay blocked — versions remain immutable in place.
+  it("deletes a versioned diagram via cascade (FR-17) while versions stay immutable in place", async () => {
     const repo = new PostgresDiagramRepository(pool);
     const d = await repo.createDiagram({ accountId, name: "has-versions" });
     await repo.saveVersion({
@@ -172,8 +169,27 @@ describe("PostgresDiagramRepository", () => {
       diagramId: d.id,
       save: { excalidrawScene: { elements: [] }, metadata: [] },
     });
+
+    // Whole-diagram teardown cascades through the version rows.
+    expect(await repo.deleteDiagram({ accountId, diagramId: d.id })).toBe(true);
+    expect(await repo.getDiagram({ accountId, diagramId: d.id })).toBeNull();
+
+    // Immutability preserved: a STANDALONE version DELETE/UPDATE is still blocked.
+    const keep = await repo.createDiagram({ accountId, name: "keep" });
+    const saved = await repo.saveVersion({
+      accountId,
+      diagramId: keep.id,
+      save: { excalidrawScene: { elements: [] }, metadata: [] },
+    });
+    const versionId = saved?.version.id;
+    expect(versionId).toBeDefined();
     await expect(
-      repo.deleteDiagram({ accountId, diagramId: d.id }),
+      pool.query("DELETE FROM diagram_version WHERE id = $1", [versionId]),
+    ).rejects.toThrow(/append-only/);
+    await expect(
+      pool.query("UPDATE diagram_version SET excalidraw_scene = '{}'::jsonb WHERE id = $1", [
+        versionId,
+      ]),
     ).rejects.toThrow(/append-only/);
   });
 

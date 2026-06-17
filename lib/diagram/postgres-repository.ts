@@ -122,12 +122,27 @@ export class PostgresDiagramRepository implements DiagramRepository {
     accountId: string;
     diagramId: string;
   }): Promise<boolean> {
-    const { rowCount } = await this.pool.query(
-      `DELETE FROM diagram
-       WHERE id = $1 AND account_id = $2`,
-      [input.diagramId, input.accountId],
-    );
-    return (rowCount ?? 0) > 0;
+    // Whole-diagram teardown: a transaction-local flag lets the FK cascade
+    // remove this diagram's immutable versions. Scoped to this transaction, so
+    // standalone version deletes elsewhere stay blocked by the append-only
+    // trigger. Versions remain immutable in place (CLAUDE.md invariant).
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SET LOCAL pid.allow_version_cascade = 'on'");
+      const { rowCount } = await client.query(
+        `DELETE FROM diagram
+         WHERE id = $1 AND account_id = $2`,
+        [input.diagramId, input.accountId],
+      );
+      await client.query("COMMIT");
+      return (rowCount ?? 0) > 0;
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   async saveVersion(input: {

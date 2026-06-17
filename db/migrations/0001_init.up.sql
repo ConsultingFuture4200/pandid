@@ -52,14 +52,21 @@ CREATE TABLE diagram_version (
 CREATE INDEX diagram_version_diagram_id_created_at_idx
   ON diagram_version (diagram_id, created_at);
 
--- Append-only enforcement: a committed version may never be updated or deleted.
--- Deleting a parent account/diagram cascades; an individual version row, however,
--- can never be mutated in place.
+-- Append-only enforcement: a committed version may never be updated or deleted
+-- in place. A WHOLE-DIAGRAM teardown is the one exception: the delete path sets
+-- the transaction-local flag `pid.allow_version_cascade` before deleting the
+-- parent diagram, letting the FK cascade remove its versions. Standalone version
+-- DELETE (no flag) and ALL UPDATEs stay blocked — existing versions remain
+-- immutable in place (CLAUDE.md invariant).
 CREATE OR REPLACE FUNCTION diagram_version_block_mutation()
   RETURNS trigger
   LANGUAGE plpgsql
 AS $$
 BEGIN
+  IF TG_OP = 'DELETE'
+     AND current_setting('pid.allow_version_cascade', true) = 'on' THEN
+    RETURN OLD; -- permitted: cascade from a parent-diagram delete
+  END IF;
   RAISE EXCEPTION 'diagram_version is append-only: % is not permitted', TG_OP
     USING ERRCODE = 'restrict_violation';
 END;
