@@ -63,7 +63,11 @@ const CONTEXT = `Read CLAUDE.md (repo root), docs/EXECUTION.md, docs/PRD_extract
   `Uphold every architecture invariant in CLAUDE.md. Touch ONLY the files this task owns — if you find yourself editing another task's file, stop, the boundary is wrong. ` +
   `Tests-first for validator, arrow-binding, proposal lifecycle, and sync-guard tasks. Work on branch dustin/<lowercased-id> and commit atomically.`
 
-const batchNum = (args && args.batch)
+let parsedArgs = args
+if (typeof parsedArgs === 'string') {
+  try { parsedArgs = JSON.parse(parsedArgs) } catch { parsedArgs = { batch: Number(parsedArgs) } }
+}
+const batchNum = Number(parsedArgs && typeof parsedArgs === 'object' ? parsedArgs.batch : parsedArgs)
 if (!batchNum || !BATCHES[batchNum]) {
   throw new Error(`Pass args.batch as one of: ${Object.keys(BATCHES).join(', ')}`)
 }
