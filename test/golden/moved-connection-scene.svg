@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 320" data-scene="bound-connection">
+  <rect x="75" y="70" width="30" height="80" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <rect x="355" y="210" width="70" height="50" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <polyline points="105,110 355,235" fill="none" stroke="#1e1e1e" stroke-width="2" data-connection="bound"/>
+  <circle cx="105" cy="110" r="3" fill="#1e1e1e" stroke="none" data-port="source"/>
+  <circle cx="355" cy="235" r="3" fill="#1e1e1e" stroke="none" data-port="target"/>
+</svg>
