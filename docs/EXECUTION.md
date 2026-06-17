@@ -69,6 +69,26 @@ Batch fan-out runs through the Workflow tool. Script: `.claude/workflows/pid-bat
 - The human/orchestrator advances batches **between** Workflow invocations — that's the join barrier and
   the place to clear review gates.
 
+### Integration / join barrier — MANDATORY between batches (learned in Batch 1)
+
+Each task runs in its **own worktree branched from `master`**, so a task's output is NOT visible to its
+siblings or to the next batch until it's merged. After every Workflow batch returns:
+
+1. **Merge** each task branch `dustin/dev-<id>` into `master` (`git merge --no-ff`), in dependency order.
+2. **Install + run the root green loop**: `pnpm install && pnpm test && pnpm lint && pnpm typecheck`.
+   This is where cross-task integration bugs surface (e.g. Batch 1: types imported `zod` that the scaffold
+   never declared — green in isolation, broken at integration). Fix them here before advancing.
+3. Only then move the issues to Done and start the next batch (its worktrees branch from the new `master`).
+
+**Corollary for any batch with a foundational task** (a scaffold/`first` task others compile against):
+land that task to `master` *before* the dependents fan out, or they build against a base that lacks it.
+
+### Symbol-set approval gate (PRD §6 — not in the loop tags)
+
+DEV-1131 implements the symbol set, but **PRD §6 requires client approval of the set before dependent
+features build.** DEV-1133 (validator: required-attrs-per-type) and DEV-1137 (canvas palette) lock against
+it. Treat DEV-1131 → {1133, 1137} as a human approval gate even though 1131 is tagged 🟡.
+
 ## Per-task definition of done
 
 1. Acceptance criteria in the Linear issue pass.
