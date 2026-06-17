@@ -1,7 +1,8 @@
 # CLAUDE.md — Extraction P&ID Co-Editor
 
 > Governing context for Claude Code agents building this project.
-> **Read this fully before any task.** Spec: `docs/PRD_extraction-pid-coeditor_v0.1.0.md`. Task graph: `docs/TASK_GRAPH_v0.1.0.md`.
+> **Read this fully before any task.** Spec: `docs/PRD_extraction-pid-coeditor_v0.1.0.md`. Task graph: `docs/TASK_GRAPH_v0.2.0.md`. Execution contract: `docs/EXECUTION.md`.
+> **Linear is the source of truth for task state.** Project `Extraction P&ID Co-Editor` (staqs workspace, `Development` team). Issues `DEV-1129`–`DEV-1159`. Read live `blockedBy` before fanning out; mirror loop/gate/risk labels.
 
 ## What this is
 
