@@ -83,6 +83,11 @@ siblings or to the next batch until it's merged. After every Workflow batch retu
 **Corollary for any batch with a foundational task** (a scaffold/`first` task others compile against):
 land that task to `master` *before* the dependents fan out, or they build against a base that lacks it.
 
+**Corollary for intra-batch chains** (a batch whose tasks `blockedBy` each other — e.g. Batch 4:
+DEV-1138 → DEV-1139 → DEV-1140): do NOT fan them out in parallel. Run each task on its own
+(`args.only`), integrate it to `master`, then run the next — so each builds on the prior's committed
+code. Only tasks with no intra-batch dependency are safe to fan out together.
+
 ### Symbol-set approval gate (PRD §6 — not in the loop tags)
 
 DEV-1131 implements the symbol set, but **PRD §6 requires client approval of the set before dependent
