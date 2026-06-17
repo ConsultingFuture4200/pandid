@@ -192,6 +192,22 @@ describe("rule (c) — equipment tags unique within diagram", () => {
     expect(report.errors.some((e) => e.code === "duplicate-tag")).toBe(false);
   });
 
+  it("FAILS when two equipment tags differ only by case (case-insensitive)", () => {
+    const snapshot = validSnapshot();
+    const broken: DiagramSnapshot = {
+      ...snapshot,
+      metadata: [
+        meta("pump-1", "pump", { tag: "EX-101", pumpType: "centrifugal" }),
+        meta("tank-1", "collection-tank", { tag: "ex-101", volume: "200 L" }),
+        meta("line-1", "process-line", { lineId: "L-1", service: "ethanol" }),
+      ],
+    };
+    const report = createConnectivityValidator().validate(broken);
+    expect(report.valid).toBe(false);
+    const dupErrors = report.errors.filter((e) => e.code === "duplicate-tag");
+    expect(dupErrors.map((e) => e.elementId).sort()).toEqual(["pump-1", "tank-1"]);
+  });
+
   it("PASSES with distinct tags", () => {
     const report = createConnectivityValidator().validate(validSnapshot());
     expect(report.errors.some((e) => e.code === "duplicate-tag")).toBe(false);

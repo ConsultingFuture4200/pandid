@@ -116,8 +116,10 @@ export const uniqueTagRule: ValidationRule = {
   code: "unique-tag",
   validate(snapshot: DiagramSnapshot): readonly ValidationError[] {
     const metaMap = metadataById(snapshot.metadata);
-    // tag (normalized) → element ids carrying it.
-    const tagToElementIds = new Map<string, string[]>();
+    // case-insensitive tag key → { display: first-seen original casing, ids }.
+    // Tags are compared case-insensitively ("EX-101" == "ex-101") so casing
+    // differences can't smuggle in a duplicate tag.
+    const tagToElementIds = new Map<string, { display: string; ids: string[] }>();
 
     for (const element of snapshot.elements) {
       if (SYMBOL_DEFINITIONS[element.equipmentType].kind !== "equipment") {
@@ -128,25 +130,26 @@ export const uniqueTagRule: ValidationRule = {
         // Missing tag is rule (d)'s concern, not (c)'s.
         continue;
       }
-      const key = tag.trim();
-      const ids = tagToElementIds.get(key);
-      if (ids === undefined) {
-        tagToElementIds.set(key, [element.id]);
+      const trimmed = tag.trim();
+      const key = trimmed.toLowerCase();
+      const record = tagToElementIds.get(key);
+      if (record === undefined) {
+        tagToElementIds.set(key, { display: trimmed, ids: [element.id] });
       } else {
-        ids.push(element.id);
+        record.ids.push(element.id);
       }
     }
 
     const errors: ValidationError[] = [];
-    for (const [tag, elementIds] of tagToElementIds) {
-      if (elementIds.length < 2) {
+    for (const { display, ids } of tagToElementIds.values()) {
+      if (ids.length < 2) {
         continue;
       }
-      for (const elementId of elementIds) {
+      for (const elementId of ids) {
         errors.push({
           code: "duplicate-tag",
           elementId,
-          message: `Tag "${tag}" is used by ${elementIds.length} elements. Equipment tags must be unique within the diagram — give each element a distinct tag.`,
+          message: `Tag "${display}" is used by ${ids.length} elements (tags are case-insensitive). Equipment tags must be unique within the diagram — give each element a distinct tag.`,
         });
       }
     }
