@@ -6,13 +6,14 @@
  *   - registration route (`app/api/oauth/register/route.ts`) → DcrService.register
  *   - token endpoint (DEV-1147)                              → DcrService.assertClientValid
  *
- * The concrete Postgres-backed repository is wired by persistence (which owns
- * the connection pool). Until then `getOAuthClientRepository` serves an
- * in-memory repository in dev/test and refuses to do so in production, so
- * registered clients are never silently an in-memory map (CLAUDE.md: real data
- * only; server is the single source of truth).
+ * In production the Postgres-backed repository is built over the shared pool
+ * (`@/lib/db/pool`). Dev/test keep a singleton in-memory repository, so
+ * registered clients are never silently an in-memory map in production
+ * (CLAUDE.md: real data only; server is the single source of truth).
  */
+import { getPool } from "@/lib/db/pool";
 import { InMemoryOAuthClientRepository } from "./in-memory-client-repository";
+import { PostgresOAuthClientRepository } from "./postgres-client-repository";
 import type { OAuthClientRepository } from "./client-repository";
 import { DcrService } from "./dcr";
 
@@ -32,25 +33,23 @@ export type {
 } from "./types";
 export type { OAuthClientRepository } from "./client-repository";
 export { InMemoryOAuthClientRepository } from "./in-memory-client-repository";
+export { PostgresOAuthClientRepository } from "./postgres-client-repository";
 
 let cachedRepository: OAuthClientRepository | null = null;
 
 /**
  * Resolve the process-wide OAuth client repository.
  *
- * Dev/test get a singleton in-memory repository. In production an in-memory
- * store would forget every registration on restart and diverge from canonical
- * truth, so this throws until the Postgres-backed repository is wired here.
+ * Production gets the Postgres-backed repository over the shared pool, so
+ * registrations persist across restarts and stay the single source of truth.
+ * Dev/test get a singleton in-memory repository. The chosen instance is cached
+ * process-wide either way.
  */
 export function getOAuthClientRepository(): OAuthClientRepository {
-  if (process.env.NODE_ENV === "production") {
-    throw new Error(
-      "No persistent OAuthClientRepository is wired. The Postgres-backed " +
-        "repository (migration 0003_oauth_clients) must be connected in " +
-        "lib/oauth/index.ts before running in production.",
-    );
-  }
-  cachedRepository ??= new InMemoryOAuthClientRepository();
+  cachedRepository ??=
+    process.env.NODE_ENV === "production"
+      ? new PostgresOAuthClientRepository(getPool())
+      : new InMemoryOAuthClientRepository();
   return cachedRepository;
 }
 

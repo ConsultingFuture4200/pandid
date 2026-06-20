@@ -21,8 +21,8 @@ describe("authorizationServerMetadata", () => {
     expect(m.issuer).toBe(ORIGIN);
     expect(m.authorization_endpoint).toBe(`${ORIGIN}/api/mcp/oauth/authorize`);
     expect(m.token_endpoint).toBe(`${ORIGIN}/api/mcp/oauth/token`);
-    // DCR endpoint advertised here; implemented by DEV-1148.
-    expect(m.registration_endpoint).toBe(`${ORIGIN}/api/mcp/oauth/register`);
+    // DCR endpoint advertised here; implemented by DEV-1148 at /api/oauth/register.
+    expect(m.registration_endpoint).toBe(`${ORIGIN}/api/oauth/register`);
   });
 
   it("requires S256 PKCE and supports the auth-code + refresh grants", () => {
