@@ -31,6 +31,11 @@ export {
   sessionExpiry,
 } from "./session";
 export { MIN_PASSWORD_LENGTH } from "./password";
+export {
+  DEFAULT_POST_LOGIN_PATH,
+  isSafeNextPath,
+  safeNextPath,
+} from "./safe-next";
 export type { AuthRepository } from "./repository";
 export { InMemoryAuthRepository } from "./in-memory-repository";
 

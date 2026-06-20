@@ -18,14 +18,21 @@ type AuthAction = (
 interface AuthFormProps {
   readonly action: AuthAction;
   readonly submitLabel: string;
+  /**
+   * Optional post-login redirect target, forwarded to the action as a hidden
+   * field. The action re-validates it (open-redirect guard) before redirecting;
+   * the page only passes a value it has already sanitized.
+   */
+  readonly next?: string;
 }
 
 const INITIAL: AuthFormState = {};
 
-export function AuthForm({ action, submitLabel }: AuthFormProps) {
+export function AuthForm({ action, submitLabel, next }: AuthFormProps) {
   const [state, formAction, pending] = useActionState(action, INITIAL);
   return (
     <form action={formAction} className="flex w-full max-w-sm flex-col gap-4">
+      {next !== undefined ? <input type="hidden" name="next" value={next} /> : null}
       <label className="flex flex-col gap-1 text-sm">
         <span className="font-medium">Email</span>
         <input

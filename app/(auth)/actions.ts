@@ -11,6 +11,7 @@ import { redirect } from "next/navigation";
 import {
   AuthError,
   getAuthService,
+  safeNextPath,
   type AuthErrorCode,
 } from "@/lib/auth";
 import {
@@ -55,6 +56,10 @@ export async function loginAction(
   formData: FormData,
 ): Promise<AuthFormState> {
   const service = getAuthService();
+  // Honor a post-login `next` (e.g. the MCP /authorize URL that bounced an
+  // unauthenticated user here) — but only when it is a safe same-origin path,
+  // so a hostile `next` can't turn login into an open redirect.
+  const next = safeNextPath(formData.get("next")?.toString());
   try {
     const { token, expiresAt } = await service.login(fields(formData));
     await setSessionCookie(token, expiresAt);
@@ -64,7 +69,7 @@ export async function loginAction(
     }
     throw err;
   }
-  redirect("/dashboard");
+  redirect(next);
 }
 
 export async function logoutAction(): Promise<void> {
