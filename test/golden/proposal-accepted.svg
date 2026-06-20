@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 440" data-proposal="accepted">
+  <polyline points="210,150 210,230" fill="none" stroke="#1e1e1e" stroke-width="2" data-connection="line-ex101-crc1"/>
+  <rect x="195" y="70" width="30" height="80" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <text x="210" y="174" font-family="sans-serif" font-size="12" fill="#1e1e1e" text-anchor="middle" data-tag="EX-101">EX-101</text>
+  <rect x="200" y="230" width="20" height="80" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <rect x="200" y="255" width="20" height="30" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <text x="210" y="334" font-family="sans-serif" font-size="12" fill="#1e1e1e" text-anchor="middle" data-tag="CRC-1">CRC-1</text>
+</svg>
