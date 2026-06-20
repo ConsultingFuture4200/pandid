@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 280" data-scene="sync" data-rev="2">
+  <rect data-id="EX-101" x="40" y="40" width="40" height="40" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <text data-id="EX-101" x="40" y="40" fill="#1e1e1e">EX-101:extraction</text>
+  <rect data-id="TK-101" x="320" y="40" width="40" height="40" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <text data-id="TK-101" x="320" y="40" fill="#1e1e1e">TK-101:collection-tank</text>
+  <rect data-id="PMP-1" x="200" y="200" width="40" height="40" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <text data-id="PMP-1" x="200" y="200" fill="#1e1e1e">PMP-1:feed-pump</text>
+</svg>
