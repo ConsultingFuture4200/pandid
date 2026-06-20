@@ -1,22 +1,21 @@
 /**
- * Public surface of the WebSocket sync module (DEV-1151 [12a], PRD §4).
+ * Public surface of the sync module (PRD §4).
  *
- * Server-authoritative whole-scene broadcast + apply:
- *   - Server side: a commit publishes the new canonical scene through the
- *     process-wide {@link getBroadcastHub} via {@link publishCommit}; the
- *     WebSocket route (DEV-1152 transport) registers per-session sinks with
- *     {@link BroadcastHub.subscribe}.
- *   - Browser side: a received {@link SceneBroadcast} is reduced onto the
- *     session's {@link SyncState} by {@link applyBroadcast} (pure), and the
- *     canvas re-renders only when `applied` is true.
+ * Two complementary layers (see ./types):
+ *   - DEV-1151 [12a] — server-authoritative whole-scene broadcast + apply. A
+ *     commit publishes the new canonical scene through {@link getBroadcastHub}
+ *     via {@link publishCommit}; the browser reduces a received
+ *     {@link SceneBroadcast} onto its {@link SyncState} with {@link applyBroadcast}.
+ *   - DEV-1152 [12b] — the in-progress-edit guard ({@link InProgressEditGuard}):
+ *     defers an authoritative broadcast that arrives mid-manipulation and
+ *     reconciles on release, so an in-flight manual edit is never stomped.
  *
- * The apply/broadcast core is transport- and DOM-free so convergence is
- * deterministic and golden-testable (🟡). The in-progress-edit guard is DEV-1152.
+ * Both layers are transport- and DOM-free (CLAUDE.md: server is the single
+ * source of truth, one committer); neither commits or mutates canonical state.
  */
-export {
-  sceneBroadcastSchema,
-  EMPTY_SYNC_STATE,
-} from "./types";
+
+// DEV-1151 [12a] — whole-scene broadcast + apply
+export { sceneBroadcastSchema, EMPTY_SYNC_STATE } from "./types";
 export type { SceneBroadcast, SyncState } from "./types";
 
 export { applyBroadcast, applyBroadcasts } from "./apply";
@@ -30,3 +29,9 @@ export type { CommittedVersion } from "./publish-commit";
 
 export { useDiagramSync } from "./use-diagram-sync";
 export type { DiagramSync, UseDiagramSyncOptions } from "./use-diagram-sync";
+
+// DEV-1152 [12b] — in-progress-edit guard
+export { InProgressEditGuard } from "./edit-guard";
+export { syncElementSchema, syncSceneSchema } from "./types";
+export type { SyncElement, SyncOutcome, SyncOutcomeKind, SyncScene } from "./types";
+export { syncSceneToSvg } from "./scene-to-svg";
