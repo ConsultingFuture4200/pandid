@@ -14,6 +14,7 @@
  * (with the right status) on failure. `no-store` on every response — tokens
  * must never be cached.
  */
+import { getDcrService, OAuthError as DcrOAuthError } from "@/lib/oauth";
 import {
   getOAuthService,
   OAuthError,
@@ -51,15 +52,30 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
+    // RFC 6749 §5.2: an unknown/revoked client_id is `invalid_client` (401),
+    // the documented signal that a DCR client (Claude Desktop) must re-register.
+    // DCR (DEV-1148) owns client validity; assert it BEFORE issuing tokens and
+    // surface its 401 verbatim — never swallow it, or re-registration can't fire.
+    await getDcrService().assertClientValid(parsed.data.client_id);
+
     const tokens = await getOAuthService().exchangeToken(parsed.data);
     return Response.json(tokens, {
       status: 200,
       headers: { "cache-control": "no-store", pragma: "no-cache" },
     });
   } catch (err) {
+    // DCR's invalid_client (unknown/revoked client) → 401 with WWW-Authenticate,
+    // the RFC 6749 §5.2 re-registration trigger.
+    if (err instanceof DcrOAuthError) {
+      return invalidClientJson(err.message, err.httpStatus);
+    }
     if (err instanceof OAuthError) {
-      const status = err.code === "invalid_client" ? 401 : 400;
-      return errorJson(err.code, err.message, status);
+      // The provider can also raise invalid_client (e.g. a stale code's client);
+      // it pairs with 401 + WWW-Authenticate too. Everything else is a 400.
+      if (err.code === "invalid_client") {
+        return invalidClientJson(err.message, 401);
+      }
+      return errorJson(err.code, err.message, 400);
     }
     throw err;
   }
@@ -87,5 +103,24 @@ function errorJson(error: string, description: string, status: number): Response
   return Response.json(
     { error, error_description: description },
     { status, headers: { "cache-control": "no-store", pragma: "no-cache" } },
+  );
+}
+
+/**
+ * RFC 6749 §5.2 `invalid_client` response: 401 with a `WWW-Authenticate` header.
+ * This is the wire signal that tells a DCR-capable client (Claude Desktop) its
+ * registration is gone and it must re-register, then retry the token exchange.
+ */
+function invalidClientJson(description: string, status: number): Response {
+  return Response.json(
+    { error: "invalid_client", error_description: description },
+    {
+      status,
+      headers: {
+        "cache-control": "no-store",
+        pragma: "no-cache",
+        "www-authenticate": 'Bearer error="invalid_client"',
+      },
+    },
   );
 }
