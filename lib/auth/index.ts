@@ -12,7 +12,9 @@
  * canonical state is never silently an in-memory map (CLAUDE.md: real data
  * only; server is the single source of truth).
  */
+import { getPool } from "@/lib/db/pool";
 import { InMemoryAuthRepository } from "./in-memory-repository";
+import { PostgresAuthRepository } from "./postgres-repository";
 import type { AuthRepository } from "./repository";
 import { AuthService } from "./service";
 
@@ -38,23 +40,22 @@ export {
 } from "./safe-next";
 export type { AuthRepository } from "./repository";
 export { InMemoryAuthRepository } from "./in-memory-repository";
+export { PostgresAuthRepository } from "./postgres-repository";
 
 let cachedRepository: AuthRepository | null = null;
 
 /**
  * Resolve the process-wide auth repository.
  *
- * Dev/test get a singleton in-memory repository. In production an in-memory
- * store would silently lose accounts and diverge from canonical truth, so this
- * throws until DEV-1135 wires the Postgres-backed repository here.
+ * Production uses the Postgres-backed repository over the shared pool. Dev/test
+ * use a singleton in-memory repository; production refuses it so accounts and
+ * sessions are never lost to an in-process map (CLAUDE.md: real data only;
+ * server is the single source of truth).
  */
 export function getAuthRepository(): AuthRepository {
   if (process.env.NODE_ENV === "production") {
-    throw new Error(
-      "No persistent AuthRepository is wired. The Postgres-backed repository " +
-        "is delivered by the persistence task (DEV-1135); wire it in " +
-        "lib/auth/index.ts before running in production.",
-    );
+    cachedRepository ??= new PostgresAuthRepository(getPool());
+    return cachedRepository;
   }
   cachedRepository ??= new InMemoryAuthRepository();
   return cachedRepository;

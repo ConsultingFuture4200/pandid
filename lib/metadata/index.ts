@@ -15,12 +15,15 @@
  * metadata is never silently an in-memory map (CLAUDE.md: real data only; server
  * is the single source of truth).
  */
+import { getPool } from "@/lib/db/pool";
 import { InMemoryElementMetadataRepository } from "./in-memory-repository";
+import { PostgresElementMetadataRepository } from "./postgres-repository";
 import type { ElementMetadataRepository } from "./repository";
 import { ElementMetadataStore } from "./store";
 
 export type { ElementMetadataRepository } from "./repository";
 export { InMemoryElementMetadataRepository } from "./in-memory-repository";
+export { PostgresElementMetadataRepository } from "./postgres-repository";
 export { ElementMetadataStore } from "./store";
 export {
   reattachMetadata,
@@ -34,17 +37,15 @@ let cachedRepository: ElementMetadataRepository | null = null;
 /**
  * Resolve the process-wide element-metadata repository.
  *
- * Dev/test get a singleton in-memory repository. In production an in-memory store
- * would silently lose metadata and diverge from canonical truth, so this throws
- * until DEV-1135 wires the Postgres-backed repository here.
+ * Production uses the Postgres-backed repository over the shared pool. Dev/test
+ * use a singleton in-memory repository; production refuses it so canonical
+ * metadata is never lost to an in-process map (CLAUDE.md: real data only; server
+ * is the single source of truth).
  */
 export function getElementMetadataRepository(): ElementMetadataRepository {
   if (process.env.NODE_ENV === "production") {
-    throw new Error(
-      "No persistent ElementMetadataRepository is wired. The Postgres-backed " +
-        "repository is delivered by the persistence task (DEV-1135); wire it in " +
-        "lib/metadata/index.ts before running in production.",
-    );
+    cachedRepository ??= new PostgresElementMetadataRepository(getPool());
+    return cachedRepository;
   }
   cachedRepository ??= new InMemoryElementMetadataRepository();
   return cachedRepository;
