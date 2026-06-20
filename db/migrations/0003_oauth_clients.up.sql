@@ -9,6 +9,12 @@
 -- client_id before the user signs in (RFC 7591). The connector→account binding
 -- is established later by the OAuth code flow (DEV-1147) + scoping (DEV-1149),
 -- so this table intentionally has no account_id foreign key.
+--
+-- Canonical client store: this is the single `oauth_clients` table. The MCP
+-- OAuth provider (DEV-1147, migration 0004_mcp_oauth) FK-references
+-- oauth_clients(client_id) from its authorization-code + token tables, so this
+-- migration MUST run first (lower number) and its down step MUST run last.
+-- `client_id` is UNIQUE below, which is what makes it a valid FK target.
 
 -- One row per registered OAuth client (RFC 7591). client_id is the public
 -- identifier issued at registration; the secret is stored only as a SHA-256

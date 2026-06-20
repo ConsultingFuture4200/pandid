@@ -2,25 +2,19 @@
 --
 -- Backs the account-based pairing for the Claude Desktop custom connector: the
 -- authorization-server state for an OAuth 2.0 authorization-code + PKCE flow.
--- Runs after the account table (0001) — tokens reference account(id).
+-- Runs after the account table (0001) — tokens reference account(id) — and
+-- after the canonical `oauth_clients` table (0003_oauth_clients), which both
+-- codes and tokens FK-reference.
 --
--- Boundary with DEV-1148 (DCR): the `oauth_clients` table is defined here (the
--- provider reads it to validate /authorize and /token), but DCR owns the
--- *registration* path that INSERTs into it. No registration logic lives in this
--- migration — schema only, matching 0001/0002.
+-- Boundary with DEV-1148 (DCR): `oauth_clients` is OWNED by DCR and created in
+-- 0003_oauth_clients (client lifecycle: register + revoke). This migration only
+-- references it. The FK targets oauth_clients(client_id) — the UNIQUE public
+-- client identifier in that table — so a code/token can only exist for a
+-- registered client, and a revoked registration cascades its codes/tokens away.
 --
 -- Tokens + codes are stored HASHED (sha256 hex), mirroring sessions (0002): the
 -- raw values only ever leave the server in an HTTP response, so a leaked row
 -- cannot be replayed.
-
--- A registered connector client. Populated by DCR (DEV-1148). `redirect_uris`
--- is the exact allow-list a returned authorization code may be delivered to.
-CREATE TABLE IF NOT EXISTS oauth_clients (
-  client_id     TEXT PRIMARY KEY,
-  -- Exact-match redirect URI allow-list (no wildcards, OAuth 2.1).
-  redirect_uris TEXT[] NOT NULL,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
-);
 
 -- Short-lived, single-use authorization codes. Bound to the approving account
 -- and the PKCE challenge. The token endpoint deletes the row on redemption.
