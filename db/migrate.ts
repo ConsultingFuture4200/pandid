@@ -12,7 +12,13 @@
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Client, type ClientConfig } from "pg";
+import type { ClientConfig } from "pg";
+import pg from "pg";
+
+const { Client } = pg;
+// `pg` is CommonJS: default-import then destructure the value, and re-expose
+// `Client` as a type so it stays usable in both value and type positions.
+type Client = InstanceType<typeof Client>;
 
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), "migrations");
 
