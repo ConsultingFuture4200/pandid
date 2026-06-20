@@ -10,13 +10,14 @@
  *   - DEV-1145's `ContextResolver` + DEV-1149's active-diagram scoping —
  *     `resolveOAuthPrincipal` turns a request's bearer token into an account.
  *
- * The Postgres-backed repository is wired where the connection pool lives
- * (DEV-1135 pattern). Until then `getOAuthRepository` serves an in-memory store
- * in dev/test and refuses to in production, so issued tokens are never silently
- * an in-memory map (CLAUDE.md: real data only; server is the single source of
- * truth).
+ * In production the Postgres-backed repository is built over the shared pool
+ * (`@/lib/db/pool`). Dev/test keep a singleton in-memory store, so issued tokens
+ * are never silently an in-memory map in production (CLAUDE.md: real data only;
+ * server is the single source of truth).
  */
+import { getPool } from "@/lib/db/pool";
 import { InMemoryOAuthRepository } from "./in-memory-repository";
+import { PostgresOAuthRepository } from "./postgres-repository";
 import type { OAuthRepository } from "./repository";
 import { OAuthService } from "./service";
 
@@ -42,6 +43,7 @@ export type {
 } from "./types";
 export type { OAuthRepository } from "./repository";
 export { InMemoryOAuthRepository } from "./in-memory-repository";
+export { PostgresOAuthRepository } from "./postgres-repository";
 export {
   bearerTokenFromHeader,
   resolveOAuthPrincipal,
@@ -61,20 +63,16 @@ let cachedRepository: OAuthRepository | null = null;
 /**
  * Resolve the process-wide OAuth repository.
  *
- * Dev/test get a singleton in-memory repository. In production an in-memory
- * token store would evaporate on restart and diverge from canonical truth, so
- * this throws until the Postgres-backed repository is wired here (DEV-1135
- * delivers the pool; the persistence-backed `OAuthRepository` lands beside it).
+ * Production gets the Postgres-backed repository over the shared pool, so issued
+ * codes/tokens persist across restarts and stay the single source of truth.
+ * Dev/test get a singleton in-memory repository. The chosen instance is cached
+ * process-wide either way.
  */
 export function getOAuthRepository(): OAuthRepository {
-  if (process.env.NODE_ENV === "production") {
-    throw new Error(
-      "No persistent OAuthRepository is wired. The Postgres-backed repository " +
-        "is delivered alongside the persistence task (DEV-1135); wire it in " +
-        "lib/mcp-oauth/index.ts before running in production.",
-    );
-  }
-  cachedRepository ??= new InMemoryOAuthRepository();
+  cachedRepository ??=
+    process.env.NODE_ENV === "production"
+      ? new PostgresOAuthRepository(getPool())
+      : new InMemoryOAuthRepository();
   return cachedRepository;
 }
 
