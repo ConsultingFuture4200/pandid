@@ -73,6 +73,14 @@ const CONNECT_SCHEMA: Record<string, unknown> = {
     targetPort: { type: "string", description: "A port id exposed by the target element." },
     signal: { type: "boolean", description: "True for a dashed signal line; default process line." },
     lineId: { type: "string", description: "Optional line id for the connector's metadata." },
+    attributes: {
+      type: "object",
+      description:
+        "Connector attributes. A process line (the default — `signal` false or " +
+        'omitted) REQUIRES a "service" value (e.g. "product", "solvent", ' +
+        '"feed"); the proposal is refused without it. Signal lines have no ' +
+        "required attributes.",
+    },
   },
   additionalProperties: false,
 };
