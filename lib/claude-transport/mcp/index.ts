@@ -42,31 +42,44 @@ export {
 export type {
   ContextResolver,
   McpServerOptions,
+  ResolveContextInput,
 } from "./server";
+
+export { registerMcpTools } from "./register-tools";
+export { createProductionContextResolver } from "./production-resolver";
 
 import { McpServer } from "./server";
 import { McpToolRegistry } from "./tool-registry";
+import { registerMcpTools } from "./register-tools";
+import { createProductionContextResolver } from "./production-resolver";
 
 let cachedRegistry: McpToolRegistry | null = null;
 let cachedServer: McpServer | null = null;
 
 /**
- * The process-wide MCP tool registry. Downstream tasks register their tools
- * into this singleton at module-init time (DEV-1146/1150) so the running server
- * exposes them. The skeleton leaves it empty.
+ * The process-wide MCP tool registry, populated with the v1 tool catalog: the
+ * 4 read tools (DEV-1146) and 5 propose tools (DEV-1150), registered via
+ * `registerMcpTools`. Built once and cached, so `tools/list` exposes all 9 tools
+ * and `tools/call` dispatches to them. The catalogs live in `lib/mcp-tools`;
+ * this wiring imports them and never edits them.
  */
 export function getMcpToolRegistry(): McpToolRegistry {
-  cachedRegistry ??= new McpToolRegistry();
+  cachedRegistry ??= registerMcpTools(new McpToolRegistry());
   return cachedRegistry;
 }
 
 /**
  * The process-wide MCP server the route handler drives. Built over the shared
- * registry with the skeleton's deny-by-default context resolver; the auth chain
- * (DEV-1147/1148/1149) swaps in a real resolver by constructing the server with
- * its own `resolveContext` once that lands.
+ * (populated) registry with the PRODUCTION context resolver: each `tools/call`
+ * is account-scoped by resolving the request's bearer token → account → active
+ * diagram (DEV-1147/1148/1149). A missing/invalid token, or an account with no
+ * active diagram, denies the call. The route handler threads the HTTP
+ * `Authorization` header into `handle`, since the JSON-RPC body does not carry it.
  */
 export function getMcpServer(): McpServer {
-  cachedServer ??= new McpServer({ registry: getMcpToolRegistry() });
+  cachedServer ??= new McpServer({
+    registry: getMcpToolRegistry(),
+    resolveContext: createProductionContextResolver(),
+  });
   return cachedServer;
 }

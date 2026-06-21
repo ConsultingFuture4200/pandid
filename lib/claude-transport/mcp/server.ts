@@ -45,20 +45,33 @@ import { McpToolError, McpToolRegistry } from "./tool-registry";
 const SERVER_NAME = "extraction-pid-coeditor";
 
 /**
- * How a request acquires its account-scoped `TransportContext`. In the skeleton
- * (DEV-1145) auth is NOT implemented — the resolver returns `null` and any
- * `tools/call` is refused with an unauthorized error. DEV-1147/1148 wire OAuth
- * + DCR and DEV-1149 resolves account → active diagram; at that point a real
- * resolver is injected here without touching the dispatch logic.
- *
- * Keeping context resolution behind this function is the auth seam: the
- * skeleton ships a deny-by-default resolver, and the auth chain replaces it.
+ * Per-request inputs a {@link ContextResolver} sees. The JSON-RPC body alone is
+ * not enough to authenticate a call: the connector's bearer credential lives on
+ * the HTTP `Authorization` header, NOT in the JSON-RPC body. The route handler
+ * (app/api/mcp/route.ts) reads that header and threads it here as
+ * `authorization` so the resolver can turn it into an account principal; the
+ * parsed JSON-RPC `request` stays available for resolvers that need it.
+ */
+export interface ResolveContextInput {
+  /** The parsed JSON-RPC message being handled. */
+  readonly request: JsonRpcRequest;
+  /** Raw value of the HTTP `Authorization` header, or null if absent. */
+  readonly authorization: string | null;
+}
+
+/**
+ * How a request acquires its account-scoped `TransportContext`. The unit-test
+ * default ({@link denyAllContextResolver}) returns `null` so any `tools/call` is
+ * refused; the production server path (`getMcpServer`) injects a real resolver
+ * that maps the bearer token → account → active diagram (DEV-1147/1148/1149).
+ * Returning `null` is the single "refuse this call" signal — the dispatch logic
+ * never changes regardless of which resolver is injected.
  */
 export type ContextResolver = (
-  request: JsonRpcRequest,
+  input: ResolveContextInput,
 ) => Promise<TransportContext | null>;
 
-/** The deny-by-default resolver the skeleton ships with: no auth yet ⇒ no context. */
+/** The deny-by-default resolver the skeleton ships with: no auth ⇒ no context. */
 export const denyAllContextResolver: ContextResolver = async () => null;
 
 /** Options for constructing an {@link McpServer}. */
@@ -102,12 +115,22 @@ export class McpServer {
    * Handle one parsed JSON-RPC message. Returns the response to send, or `null`
    * when the message is a notification (no `id`) and so takes no response.
    *
+   * `options.authorization` carries the request's HTTP `Authorization` header
+   * (the connector's bearer credential), which the JSON-RPC body does not — the
+   * route handler reads it and threads it through so the context resolver can
+   * authenticate the call. It defaults to `null` (no header) so existing callers
+   * and unit tests need not supply it.
+   *
    * Never throws for protocol-level problems: an unknown method, bad params, or
    * a tool failure all come back as JSON-RPC error responses (or are swallowed
    * for notifications). This keeps the route handler simple — it always has a
    * value to serialize or `null` to answer 202.
    */
-  async handle(request: JsonRpcRequest): Promise<JsonRpcResponse | null> {
+  async handle(
+    request: JsonRpcRequest,
+    options: { authorization?: string | null } = {},
+  ): Promise<JsonRpcResponse | null> {
+    const authorization = options.authorization ?? null;
     const isNotification = request.id === undefined;
     // For requests, `id` is present; for notifications it's absent. The wire
     // `id` for an error response on a notification would be null, but we send
@@ -131,7 +154,9 @@ export class McpServer {
         return isNotification ? null : jsonRpcSuccess(id, this.listTools());
 
       case "tools/call":
-        return isNotification ? null : await this.callTool(id, request);
+        return isNotification
+          ? null
+          : await this.callTool(id, request, authorization);
 
       default:
         if (isNotification) return null;
@@ -168,6 +193,7 @@ export class McpServer {
   private async callTool(
     id: JsonRpcId,
     request: JsonRpcRequest,
+    authorization: string | null,
   ): Promise<JsonRpcResponse> {
     const params = request.params;
     if (params === undefined || Array.isArray(params)) {
@@ -208,17 +234,19 @@ export class McpServer {
     const args = (rawArgs ?? {}) as Record<string, unknown>;
 
     // Account scoping (PRD §3 step 2): a tool acts on the account's active
-    // diagram. The skeleton has no auth, so this resolves to null and the call
-    // is refused — exactly the deny-by-default posture until the auth chain
-    // (DEV-1147/1148/1149) lands.
-    const context = await this.resolveContext(request);
+    // diagram. The production resolver maps the request's bearer token → account
+    // → active diagram; the unit-test default denies. Either way a `null` here
+    // is the single "refuse this call" signal.
+    const context = await this.resolveContext({ request, authorization });
     if (context === null) {
       return jsonRpcError(
         id,
         JsonRpcErrorCode.InvalidRequest,
-        "Not authorized: no authenticated account is bound to this MCP " +
-          "session. Add the connector in Claude Desktop and complete the " +
-          "OAuth sign-in, then retry.",
+        "Not authorized: this MCP call has no account-scoped active diagram. " +
+          "Either the connector is not signed in (add it in Claude Desktop and " +
+          "complete the OAuth sign-in), or your account has no active diagram " +
+          "(open or pick one at /diagrams — it becomes the active diagram). " +
+          "Then retry.",
       );
     }
 

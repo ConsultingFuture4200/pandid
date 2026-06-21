@@ -14,12 +14,13 @@
  *   - POST /api/mcp        → JSON-RPC message handling (initialize, ping,
  *                            tools/list, tools/call).
  *
- * Auth is NOT implemented here — the server ships a deny-by-default context
- * resolver, so `tools/call` is refused until the OAuth + DCR chain
- * (DEV-1147/1148) and active-diagram scoping (DEV-1149) land. The skeleton is
- * deliberately the transport + registry + handshake only; this is a 🔴
- * human-gated task whose final verification (a human adding the connector in
- * Claude Desktop) is documented in docs/HUMAN-VERIFY-DEV-1145.md.
+ * Auth: a `tools/call` is account-scoped. The connector presents its bearer
+ * access token on the HTTP `Authorization` header (MCP auth spec 2025-11-25);
+ * this handler reads it and threads it into `McpServer.handle`, whose production
+ * context resolver maps token → account → active diagram (DEV-1147/1148/1149).
+ * A missing/invalid token, or an account with no active diagram, is refused. The
+ * live human verification (a human adding the connector in Claude Desktop and
+ * accepting a proposal) is documented in docs/HUMAN-VERIFY-DEV-1145.md.
  */
 import {
   JSONRPC_VERSION,
@@ -92,7 +93,11 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const response = await getMcpServer().handle(parsed.data);
+  // The connector's bearer credential rides on the HTTP `Authorization` header,
+  // not the JSON-RPC body, so thread it into the server: its production context
+  // resolver maps the token → account → active diagram to scope the tool call.
+  const authorization = request.headers.get("authorization");
+  const response = await getMcpServer().handle(parsed.data, { authorization });
   if (response === null) {
     // Notification: acknowledged, no JSON-RPC response body.
     return new Response(null, { status: 202 });
