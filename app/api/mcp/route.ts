@@ -30,6 +30,7 @@ import {
   jsonRpcError,
   jsonRpcRequestSchema,
 } from "@/lib/claude-transport/mcp";
+import { originFromRequest } from "@/lib/mcp-oauth";
 
 /**
  * Custom connectors call this from Anthropic's cloud, so it must run on the
@@ -66,6 +67,17 @@ export function GET(): Response {
  *   - Otherwise the response is the server's JSON-RPC response object.
  */
 export async function POST(request: Request): Promise<Response> {
+  // OAuth 2.0 Protected Resource (RFC 9728 / MCP auth spec): the MCP endpoint is
+  // a protected resource. A request without a bearer token gets HTTP 401 with a
+  // `WWW-Authenticate: Bearer resource_metadata="…"` header — the signal that
+  // makes the MCP client (claude.ai / Desktop) run discovery → DCR → OAuth →
+  // retry with a token. Returning the failure as an in-body JSON-RPC error
+  // (HTTP 200) does NOT trigger the client's auth flow, so the gate lives here.
+  const authorization = request.headers.get("authorization");
+  if (!hasBearerToken(authorization)) {
+    return unauthorizedResponse(request);
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -111,6 +123,35 @@ function jsonResponse(payload: unknown): Response {
     status: 200,
     headers: { "content-type": "application/json" },
   });
+}
+
+/** True when the `Authorization` header carries a non-empty Bearer token. */
+function hasBearerToken(authorization: string | null): boolean {
+  return authorization !== null && /^Bearer\s+\S/i.test(authorization);
+}
+
+/**
+ * RFC 9728 / MCP-auth challenge: a 401 whose `WWW-Authenticate` header names the
+ * protected-resource metadata URL. This is the signal an MCP client acts on to
+ * run discovery → Dynamic Client Registration → OAuth sign-in, then retry the
+ * call with a bearer token. The JSON body is informational only.
+ */
+function unauthorizedResponse(request: Request): Response {
+  const resourceMetadata = `${originFromRequest(request)}/.well-known/oauth-protected-resource`;
+  return new Response(
+    JSON.stringify({
+      error: "unauthorized",
+      error_description:
+        "This MCP server requires OAuth. Authenticate with the P&ID connector, then retry.",
+    }),
+    {
+      status: 401,
+      headers: {
+        "content-type": "application/json",
+        "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadata}"`,
+      },
+    },
+  );
 }
 
 /**
