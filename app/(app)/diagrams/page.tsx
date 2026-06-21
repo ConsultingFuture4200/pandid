@@ -10,28 +10,38 @@
  * actions (account never comes from the client), then renders the switcher.
  */
 import { requireUser } from "@/lib/auth/current-user";
+import { createDiagramAction } from "../diagram-actions";
 import {
   listScopableDiagrams,
   setActiveDiagramAction,
 } from "../scoping-actions";
 import { DiagramSwitcher } from "./diagram-switcher";
+import { NewDiagramForm } from "./new-diagram-form";
 
 export default async function DiagramsPage() {
   await requireUser();
   const { diagrams, activeDiagramId } = await listScopableDiagrams();
+  const hasDiagrams = diagrams.length > 0;
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
       <h1 className="text-2xl font-semibold">Diagrams</h1>
       <p className="max-w-md text-center text-sm text-gray-500">
-        Your active diagram is the one Claude acts on through the connector.
-        Switch it here — only one diagram is active at a time.
+        Your active diagram is the one Claude acts on through the connector and
+        the one the editor opens. Only one diagram is active at a time.
       </p>
-      <DiagramSwitcher
-        action={setActiveDiagramAction}
-        diagrams={diagrams}
-        activeDiagramId={activeDiagramId}
-      />
+      {hasDiagrams ? (
+        <DiagramSwitcher
+          action={setActiveDiagramAction}
+          diagrams={diagrams}
+          activeDiagramId={activeDiagramId}
+        />
+      ) : (
+        <p className="text-sm text-gray-500">
+          No diagrams yet — create one below. It becomes your active diagram.
+        </p>
+      )}
+      <NewDiagramForm action={createDiagramAction} />
     </main>
   );
 }
