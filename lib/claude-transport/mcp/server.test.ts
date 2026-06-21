@@ -251,3 +251,52 @@ describe("McpServer — tools/call (account-scoped, deny-by-default)", () => {
     expect(res.error.message).toContain("boom");
   });
 });
+
+describe("McpServer — Authorization-header threading (auth seam)", () => {
+  it("passes the request's authorization header to the context resolver", async () => {
+    const registry = new McpToolRegistry().register(makeEchoTool());
+    let seenAuthorization: string | null = "<unset>";
+    const server = new McpServer({
+      registry,
+      resolveContext: async ({ authorization }) => {
+        seenAuthorization = authorization;
+        return CONTEXT;
+      },
+    });
+    await server.handle(req("tools/call", { name: "echo" }), {
+      authorization: "Bearer tok-123",
+    });
+    expect(seenAuthorization).toBe("Bearer tok-123");
+  });
+
+  it("defaults authorization to null when the route supplies no header", async () => {
+    const registry = new McpToolRegistry().register(makeEchoTool());
+    let seenAuthorization: string | null = "<unset>";
+    const server = new McpServer({
+      registry,
+      resolveContext: async ({ authorization }) => {
+        seenAuthorization = authorization;
+        return CONTEXT;
+      },
+    });
+    // No options arg at all — existing callers/tests must keep working.
+    await server.handle(req("tools/call", { name: "echo" }));
+    expect(seenAuthorization).toBeNull();
+  });
+
+  it("hands the resolver the parsed JSON-RPC request alongside the header", async () => {
+    const registry = new McpToolRegistry().register(makeEchoTool());
+    let seenMethod: string | undefined;
+    const server = new McpServer({
+      registry,
+      resolveContext: async ({ request }) => {
+        seenMethod = request.method;
+        return CONTEXT;
+      },
+    });
+    await server.handle(req("tools/call", { name: "echo" }), {
+      authorization: "Bearer t",
+    });
+    expect(seenMethod).toBe("tools/call");
+  });
+});
