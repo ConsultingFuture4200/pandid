@@ -32,6 +32,8 @@ import {
   listPendingProposals,
 } from "@/app/(canvas)/proposal-actions";
 import { PendingProposalPanel } from "@/components/proposal-review/pending-proposal-panel";
+import { AttributePanel } from "./attribute-panel";
+import { findNode, setNodeAttribute } from "./attribute-fields";
 import type { PlacementModel } from "./placement-model";
 import { usePendingProposals } from "./use-pending-proposals";
 
@@ -60,13 +62,25 @@ export function EditorShell({
   initialModel,
 }: EditorShellProps) {
   // `committedModel` is what the canvas is initialized/refreshed from (canonical);
-  // `pendingModel` is the canvas's current in-progress edit awaiting save.
+  // `pendingModel` is the canvas's current in-progress edit awaiting save. It is
+  // held both in a ref (for stale-closure-free reads on Save) and in state (so
+  // the attribute panel re-renders with the latest attributes as they are typed).
   const [committedModel, setCommittedModel] =
     useState<PlacementModel>(initialModel);
   const pendingModelRef = useRef<PlacementModel>(initialModel);
+  const [pendingModel, setPendingModelState] =
+    useState<PlacementModel>(initialModel);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<CommitEditResult | null>(null);
+
+  // Set the in-progress model in both the ref (Save reads it) and state (panel
+  // re-renders from it) so the two never drift.
+  const setPendingModel = useCallback((model: PlacementModel) => {
+    pendingModelRef.current = model;
+    setPendingModelState(model);
+  }, []);
 
   const { proposals, refresh: refreshProposals } =
     usePendingProposals(listPendingProposals);
@@ -77,15 +91,41 @@ export function EditorShell({
     const result = await loadActiveDiagram();
     if (result.status === "ok") {
       setCommittedModel(result.diagram.model);
-      pendingModelRef.current = result.diagram.model;
+      setPendingModel(result.diagram.model);
+      setSelectedNodeId(null);
       setDirty(false);
     }
+  }, [setPendingModel]);
+
+  const handleModelChange = useCallback(
+    (model: PlacementModel) => {
+      setPendingModel(model);
+      setDirty(true);
+    },
+    [setPendingModel],
+  );
+
+  // The canvas reports which node (if any) is currently selected; the shell shows
+  // the attribute editor for it.
+  const handleSelectionChange = useCallback((nodeId: string | null) => {
+    setSelectedNodeId(nodeId);
   }, []);
 
-  const handleModelChange = useCallback((model: PlacementModel) => {
-    pendingModelRef.current = model;
-    setDirty(true);
-  }, []);
+  // Edit one attribute of the selected node in the in-progress model and mark it
+  // dirty, so the existing Save (single commit pipeline + validator) includes it.
+  // This only touches the pending edit — the human is still the sole committer.
+  const handleAttributeChange = useCallback(
+    (key: string, value: string) => {
+      if (selectedNodeId === null) {
+        return;
+      }
+      setPendingModel(
+        setNodeAttribute(pendingModelRef.current, selectedNodeId, key, value),
+      );
+      setDirty(true);
+    },
+    [selectedNodeId, setPendingModel],
+  );
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -106,6 +146,10 @@ export function EditorShell({
   const afterDecision = useCallback(async () => {
     await Promise.all([refreshFromCanonical(), refreshProposals()]);
   }, [refreshFromCanonical, refreshProposals]);
+
+  // The selected node resolved against the in-progress model, so the attribute
+  // panel always edits the latest pending attributes (and hides on empty space).
+  const selectedNode = findNode(pendingModel, selectedNodeId);
 
   return (
     <div className="flex h-screen w-screen flex-col">
@@ -160,9 +204,17 @@ export function EditorShell({
           <PidCanvas
             initialModel={committedModel}
             onModelChange={handleModelChange}
+            onSelectionChange={handleSelectionChange}
           />
         </div>
         <aside className="flex w-80 shrink-0 flex-col overflow-y-auto border-l">
+          {selectedNode !== null ? (
+            <AttributePanel
+              key={selectedNode.elementId}
+              node={selectedNode}
+              onAttributeChange={handleAttributeChange}
+            />
+          ) : null}
           <DecisionRefreshPanel
             proposals={proposals}
             onDecided={afterDecision}
