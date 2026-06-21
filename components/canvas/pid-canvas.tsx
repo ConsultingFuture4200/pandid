@@ -29,7 +29,11 @@ import {
   convertToExcalidrawElements,
 } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
-import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import type {
+  AppState,
+  ExcalidrawImperativeAPI,
+} from "@excalidraw/excalidraw/types";
+import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 
 import { getSymbol, getRequiredAttributes, type SymbolId } from "@/lib/symbols";
 import { EquipmentPalette } from "./equipment-palette";
@@ -47,16 +51,28 @@ interface PidCanvasProps {
   /** Called whenever the structural model changes (e.g. a placement) so the
    * shell can offer to save it through the commit pipeline. */
   readonly onModelChange: (model: PlacementModel) => void;
+  /** Called when the canvas selection changes to a single equipment node (its
+   * element id) or to nothing/multiple (null), so the shell can show/hide the
+   * attribute editor for the selected node. */
+  readonly onSelectionChange?: (selectedNodeId: string | null) => void;
 }
 
-/** Render a model's equipment nodes onto the Excalidraw scene. Connections are
- * structural in the model (their geometry is recomputed server-side from the
- * `pid` projection), so we draw equipment bodies here. */
-function nodesToSceneElements(nodes: readonly PlacedNode[]) {
-  const skeletons = nodes.flatMap((n) =>
-    symbolToSkeletons(getSymbol(n.symbolId), { x: n.x, y: n.y, size: n.size }),
+/**
+ * Render a node's equipment body onto the scene, returning the scene elements.
+ * `convertToExcalidrawElements` assigns each element its own id, unrelated to the
+ * node's `elementId`; the caller records the resulting ids → node mapping so a
+ * later selection of any of a node's shapes resolves back to that node.
+ */
+function nodeToSceneElements(
+  node: PlacedNode,
+): readonly OrderedExcalidrawElement[] {
+  return convertToExcalidrawElements(
+    symbolToSkeletons(getSymbol(node.symbolId), {
+      x: node.x,
+      y: node.y,
+      size: node.size,
+    }),
   );
-  return convertToExcalidrawElements(skeletons);
 }
 
 /** Seed default attributes for a freshly placed symbol: its required-attribute
@@ -71,21 +87,72 @@ function defaultAttributes(symbolId: SymbolId): Record<string, string> {
   return attrs;
 }
 
-export function PidCanvas({ initialModel, onModelChange }: PidCanvasProps) {
+export function PidCanvas({
+  initialModel,
+  onModelChange,
+  onSelectionChange,
+}: PidCanvasProps) {
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
   // The structural model is the source of truth for what is committed; mirror it
   // in a ref so placement handlers append without stale closures.
   const modelRef = useRef<PlacementModel>(initialModel);
   const placeCountRef = useRef(0);
+  // Scene-element id → owning node element id. Excalidraw selection reports its
+  // own element ids; this map resolves a selected shape back to its PlacedNode
+  // (a node may render to several shapes, all pointing at the same node id).
+  const sceneToNodeRef = useRef<Map<string, string>>(new Map());
+  // Last reported selection, so onChange only fires onSelectionChange on a real
+  // transition (Excalidraw's onChange fires on every interaction).
+  const lastSelectionRef = useRef<string | null>(null);
 
-  // Render a committed model onto the canvas (once the API is available).
+  // Render a committed model onto the canvas (once the API is available),
+  // rebuilding the scene-element → node map from scratch (server-authoritative).
   const renderModel = useCallback((model: PlacementModel) => {
     const api = apiRef.current;
     if (api === null) {
       return;
     }
-    api.updateScene({ elements: nodesToSceneElements(model.nodes) });
+    const map = new Map<string, string>();
+    const elements = model.nodes.flatMap((node) => {
+      const placed = nodeToSceneElements(node);
+      for (const element of placed) {
+        map.set(element.id, node.elementId);
+      }
+      return placed;
+    });
+    sceneToNodeRef.current = map;
+    api.updateScene({ elements });
   }, []);
+
+  // Resolve the canvas selection to a single owned node id, or null when nothing
+  // (or more than one distinct node) is selected. Drives the attribute panel.
+  const resolveSelectedNode = useCallback(
+    (selectedElementIds: AppState["selectedElementIds"]): string | null => {
+      const owners = new Set<string>();
+      for (const sceneId of Object.keys(selectedElementIds)) {
+        const owner = sceneToNodeRef.current.get(sceneId);
+        if (owner !== undefined) {
+          owners.add(owner);
+        }
+      }
+      return owners.size === 1 ? [...owners][0] : null;
+    },
+    [],
+  );
+
+  const handleChange = useCallback(
+    (_elements: readonly OrderedExcalidrawElement[], appState: AppState) => {
+      if (onSelectionChange === undefined) {
+        return;
+      }
+      const selected = resolveSelectedNode(appState.selectedElementIds);
+      if (selected !== lastSelectionRef.current) {
+        lastSelectionRef.current = selected;
+        onSelectionChange(selected);
+      }
+    },
+    [onSelectionChange, resolveSelectedNode],
+  );
 
   // When the server hands a freshly loaded/refreshed model, replace the canvas
   // from canonical state (never merge — server is the single source of truth).
@@ -126,9 +193,12 @@ export function PidCanvas({ initialModel, onModelChange }: PidCanvasProps) {
       };
       modelRef.current = next;
 
-      const placed = convertToExcalidrawElements(
-        symbolToSkeletons(getSymbol(id), origin),
-      );
+      const placed = nodeToSceneElements(node);
+      // Record the new scene elements so selecting any of them resolves to this
+      // node (append, since the rest of the scene is unchanged).
+      for (const element of placed) {
+        sceneToNodeRef.current.set(element.id, node.elementId);
+      }
       const existing = api.getSceneElements();
       api.updateScene({ elements: [...existing, ...placed] });
       api.scrollToContent(placed, { fitToContent: true });
@@ -147,6 +217,7 @@ export function PidCanvas({ initialModel, onModelChange }: PidCanvasProps) {
             apiRef.current = api;
             renderModel(modelRef.current);
           }}
+          onChange={handleChange}
         />
       </div>
     </div>
