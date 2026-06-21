@@ -1,28 +1,51 @@
-"use client";
-
 /**
- * Canvas route (DEV-1137, FR-1). Mounts the Excalidraw editor + equipment
- * palette CLIENT-SIDE ONLY: Excalidraw crashes under SSR (CLAUDE.md fact #2),
- * so the wrapper is loaded via `dynamic(..., { ssr:false })`.
+ * Canvas route (DEV-1137, FR-1; wired to the real active diagram here).
  *
- * This route is the editor shell only. Canonical diagram state, persistence,
- * sync, and metadata are owned by other tasks (DEV-1135/1136/1151); this task
- * renders the canvas and the palette and wires palette → placement.
+ * Server Component: resolves the signed-in account's ACTIVE diagram and loads its
+ * latest committed version (scene + metadata) BEFORE rendering, so the canvas is
+ * initialized from canonical state (server is the single source of truth). When
+ * the account has no active diagram, it renders a clear empty state linking to
+ * /diagrams to pick or create one.
+ *
+ * The interactive editor (canvas + palette + proposal overlay) is the client
+ * {@link EditorShell}; Excalidraw inside it mounts via `dynamic(..., { ssr:false })`
+ * (CLAUDE.md fact #2). `requireUser` (inside `loadActiveDiagram`) redirects an
+ * unauthenticated visitor to /login.
  */
-import dynamic from "next/dynamic";
+import Link from "next/link";
+import { loadActiveDiagram } from "@/app/(canvas)/editor-actions";
+import { EditorShell } from "@/components/canvas/editor-shell";
 
-const PidCanvas = dynamic(
-  () => import("@/components/canvas/pid-canvas").then((m) => m.PidCanvas),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex h-screen w-screen items-center justify-center text-sm text-gray-500">
-        Loading canvas…
-      </div>
-    ),
-  },
-);
+export default async function CanvasPage() {
+  const result = await loadActiveDiagram();
 
-export default function CanvasPage() {
-  return <PidCanvas />;
+  if (result.status === "no-active-diagram") {
+    return (
+      <main
+        data-testid="editor-no-active-diagram"
+        className="flex h-screen w-screen flex-col items-center justify-center gap-4 p-8 text-center"
+      >
+        <h1 className="text-lg font-semibold">No active diagram</h1>
+        <p className="max-w-md text-sm text-gray-600">
+          You don&apos;t have an active diagram yet. Open or create one to start
+          drawing — the diagram you open becomes the one Claude is scoped to.
+        </p>
+        <Link
+          href="/diagrams"
+          className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white"
+        >
+          Go to your diagrams
+        </Link>
+      </main>
+    );
+  }
+
+  const { diagram } = result;
+  return (
+    <EditorShell
+      diagramId={diagram.diagramId}
+      diagramName={diagram.name}
+      initialModel={diagram.model}
+    />
+  );
 }
