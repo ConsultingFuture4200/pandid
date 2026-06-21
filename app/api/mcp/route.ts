@@ -105,10 +105,9 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  // The connector's bearer credential rides on the HTTP `Authorization` header,
-  // not the JSON-RPC body, so thread it into the server: its production context
-  // resolver maps the token → account → active diagram to scope the tool call.
-  const authorization = request.headers.get("authorization");
+  // `authorization` (validated as a bearer token above) is threaded into the
+  // server: its production context resolver maps the token → account → active
+  // diagram to scope the tool call.
   const response = await getMcpServer().handle(parsed.data, { authorization });
   if (response === null) {
     // Notification: acknowledged, no JSON-RPC response body.
