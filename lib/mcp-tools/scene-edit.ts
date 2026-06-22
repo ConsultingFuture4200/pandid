@@ -29,8 +29,9 @@ import type {
   ConnectArgs,
   DeleteElementArgs,
   MoveOrRelabelArgs,
+  ProposeOp,
   SetMetadataArgs,
-} from "./propose-tools";
+} from "./propose-ops";
 
 /** Default on-canvas footprint (px) for a newly placed equipment symbol. */
 const DEFAULT_SIZE = 100;
@@ -71,13 +72,7 @@ export interface EditableScene {
   viewport: { width: number; height: number };
 }
 
-/** The discriminated op a propose tool applies. */
-export type ProposeOp =
-  | { readonly kind: "add-equipment"; readonly args: AddEquipmentArgs }
-  | { readonly kind: "connect"; readonly args: ConnectArgs }
-  | { readonly kind: "set-metadata"; readonly args: SetMetadataArgs }
-  | { readonly kind: "delete-element"; readonly args: DeleteElementArgs }
-  | { readonly kind: "move-or-relabel"; readonly args: MoveOrRelabelArgs };
+export type { ProposeOp } from "./propose-ops";
 
 /**
  * Build an editable scene from the account's active diagram. Geometry + edges
@@ -142,6 +137,31 @@ export function sceneFromSnapshot(active: ActiveDiagram): EditableScene {
     metadata,
     viewport: pid?.viewport ?? { ...DEFAULT_VIEWPORT },
   };
+}
+
+/**
+ * Build the EFFECTIVE editable scene: committed state with every PENDING
+ * proposal's op applied in stage order. This is the base a NEW op stages against
+ * (so a `connect` can reference just-added-but-uncommitted equipment) AND the
+ * scene `get_active_diagram` projects (so Claude sees committed + pending and can
+ * name staged element/port ids).
+ *
+ * `pendingOps` must be in STAGE ORDER (oldest first) — the order the proposals
+ * were created — so the reconstructed scene matches what each successive stage saw.
+ * A pending op that no longer applies cleanly to the committed base (e.g. its
+ * target was rejected/never committed) throws `McpProposeError` from `applyOp`;
+ * since these are previously-validated ops over a forward-moving committed base,
+ * that is not expected in normal operation.
+ */
+export function effectiveSceneFromSnapshot(
+  active: ActiveDiagram,
+  pendingOps: readonly ProposeOp[],
+): EditableScene {
+  let scene = sceneFromSnapshot(active);
+  for (const op of pendingOps) {
+    scene = applyOp(scene, op);
+  }
+  return scene;
 }
 
 /**
@@ -236,7 +256,9 @@ function addEquipment(scene: EditableScene, args: AddEquipmentArgs): EditableSce
     );
   }
   const symbol = getSymbol(args.equipmentType);
-  const elementId = newElementId("eq");
+  // Prefer the id the tool assigned at stage time so the op is a deterministic
+  // delta (re-applying it yields the same id); mint one only for a hand-built op.
+  const elementId = args.elementId ?? newElementId("eq");
   const placement: ScenePlacement = {
     elementId,
     symbolId: args.equipmentType,
@@ -261,7 +283,7 @@ function connect(scene: EditableScene, args: ConnectArgs): EditableScene {
   // staging refuse an invalid binding with a structured report. We still resolve
   // geometry only for ports that exist, so a valid edge draws and an invalid one
   // still stages → gets refused with `endpoint-missing-port`/`-element`.
-  const elementId = newElementId(args.signal ? "sig" : "line");
+  const elementId = args.elementId ?? newElementId(args.signal ? "sig" : "line");
   const start = portPoint(scene, args.sourceElementId, args.sourcePort);
   const end = portPoint(scene, args.targetElementId, args.targetPort);
   const connection: SceneConnection = {

@@ -32,6 +32,13 @@ export const stageProposalInputSchema = z.object({
   diagramId: z.string().min(1),
   /** The change Claude proposes, in the committer's own edit shape. */
   edit: diagramEditSchema,
+  /**
+   * The delta the propose tool applied, stored opaquely (`lib/proposals` does not
+   * know the `ProposeOp` shape). Source of truth for accept: re-materialized
+   * against current committed state so accept never clobbers a prior commit. Optional
+   * so legacy callers (no op) still stage and accept the stored `edit`.
+   */
+  op: jsonObjectSchema.optional(),
 });
 export type StageProposalInput = z.infer<typeof stageProposalInputSchema>;
 
@@ -47,11 +54,26 @@ export type { DiagramEdit };
 export type CommitElementLike = CommitElement;
 
 /**
- * The persisted `staged_change` payload. A proposal stages exactly the edit it
- * will commit; this wrapper keeps the JSON column self-describing and leaves
- * room for additive fields (e.g. a human-readable summary) without a migration.
+ * The persisted `staged_change` payload.
+ *
+ * `op` is the DELTA the propose tool applied (an opaque `JsonObject` here — the
+ * `lib/mcp-tools` layer owns its concrete `ProposeOp` shape; `lib/proposals` must
+ * NOT import it, to avoid a layering cycle). It is the SOURCE OF TRUTH for accept:
+ * acceptance materializes the op against CURRENT committed state, so accepting one
+ * proposal never clobbers another already-committed one.
+ *
+ * `edit` is the effective+new WHOLE-scene edit computed at stage time (committed +
+ * all pending ops + this op). It is kept for two reasons: (1) stage-time
+ * validation (so cross-pending issues are caught before a row is written), and (2)
+ * the editor's pending overlay / SVG projection reads it. Do not remove it.
+ *
+ * Legacy rows (pre-delta) have only `edit`; `op` is therefore optional and the
+ * accept path falls back to committing `edit` when no `op` is present.
  */
 export const stagedChangeSchema = z.object({
+  /** The delta the propose tool applied. Opaque JSON; mcp-tools owns its shape. */
+  op: jsonObjectSchema.optional(),
+  /** Effective whole-scene edit (committed + pending + this op): validation + display. */
   edit: diagramEditSchema,
 });
 export type StagedChange = z.infer<typeof stagedChangeSchema>;

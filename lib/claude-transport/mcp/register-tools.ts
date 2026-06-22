@@ -26,14 +26,18 @@
  */
 import {
   buildReadToolDescriptors,
+  DiagramServiceActiveSource,
   getMcpReadTools,
   type ReadToolDescriptor,
 } from "@/lib/mcp-tools";
 import {
   buildProposeToolDescriptors,
+  createMaterializeEdit,
   getMcpProposeTools,
   type ProposeToolDescriptor,
 } from "@/lib/mcp-tools/propose-index";
+import { getDiagramService } from "@/lib/diagram";
+import { getProposalService } from "@/lib/proposals";
 import type { JsonObject } from "@/lib/types";
 import type { TransportContext } from "../types";
 import type { McpToolResult } from "./tool-registry";
@@ -109,10 +113,22 @@ function adaptProposeTool(descriptor: ProposeToolDescriptor) {
  * process-wide singleton is built once in `getMcpToolRegistry`).
  */
 export function registerMcpTools(registry: McpToolRegistry): McpToolRegistry {
-  for (const descriptor of buildReadToolDescriptors(getMcpReadTools())) {
+  // Share ONE active-diagram source + proposal service across read and propose
+  // tools so: (a) the accept materializer reads the same canonical source it
+  // stages against, and (b) read tools see the same pending proposals the propose
+  // tools stage (the no-clobber + effective-state design hinges on one shared
+  // pending set). The proposal service carries the accept-time materializer.
+  const source = new DiagramServiceActiveSource(getDiagramService());
+  const proposals = getProposalService(createMaterializeEdit(source));
+
+  for (const descriptor of buildReadToolDescriptors(
+    getMcpReadTools(source, proposals),
+  )) {
     registry.register(adaptReadTool(descriptor));
   }
-  for (const descriptor of buildProposeToolDescriptors(getMcpProposeTools())) {
+  for (const descriptor of buildProposeToolDescriptors(
+    getMcpProposeTools(source, proposals),
+  )) {
     registry.register(adaptProposeTool(descriptor));
   }
   return registry;
