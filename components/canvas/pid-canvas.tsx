@@ -23,7 +23,7 @@
  * state, because `convertToExcalidrawElements` drops `customData` (CLAUDE.md fact
  * #1) and equipment metadata lives only in the parallel store.
  */
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Excalidraw,
   convertToExcalidrawElements,
@@ -75,6 +75,12 @@ function nodeToSceneElements(
   );
 }
 
+/** The scene-space centre of a placed node, used as a connection endpoint when
+ * no resolved port point is stored. */
+function nodeCentre(node: PlacedNode): { x: number; y: number } {
+  return { x: node.x + node.size / 2, y: node.y + node.size / 2 };
+}
+
 /** Seed default attributes for a freshly placed symbol: its required-attribute
  * keys blank (the human fills them before a valid save) plus an empty tag, so the
  * element exists in the model immediately and the validator can report exactly
@@ -93,6 +99,11 @@ export function PidCanvas({
   onSelectionChange,
 }: PidCanvasProps) {
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
+  // Flips true once Excalidraw hands us its imperative API. We render the loaded
+  // model from an EFFECT gated on this — NOT synchronously inside the
+  // `excalidrawAPI` callback, which fires mid-mount before the scene is ready, so
+  // an `updateScene` there is silently dropped (canvas stays blank).
+  const [apiReady, setApiReady] = useState(false);
   // The structural model is the source of truth for what is committed; mirror it
   // in a ref so placement handlers append without stale closures.
   const modelRef = useRef<PlacementModel>(initialModel);
@@ -108,20 +119,65 @@ export function PidCanvas({
   // Render a committed model onto the canvas (once the API is available),
   // rebuilding the scene-element → node map from scratch (server-authoritative).
   const renderModel = useCallback((model: PlacementModel) => {
-    const api = apiRef.current;
-    if (api === null) {
-      return;
-    }
-    const map = new Map<string, string>();
-    const elements = model.nodes.flatMap((node) => {
-      const placed = nodeToSceneElements(node);
-      for (const element of placed) {
-        map.set(element.id, node.elementId);
+    // Apply the scene AFTER Excalidraw finishes initializing. The
+    // `excalidrawAPI` callback fires mid-mount, before Excalidraw applies its
+    // (empty) initialData — so an `updateScene` on the same tick is wiped by that
+    // init. Deferring across two animation frames runs the update after the
+    // init clear AND after the canvas has laid out (so scrollToContent measures a
+    // real size). Both the scene write and the fit happen here.
+    const apply = () => {
+      const api = apiRef.current;
+      if (api === null) {
+        return;
       }
-      return placed;
-    });
-    sceneToNodeRef.current = map;
-    api.updateScene({ elements });
+      const map = new Map<string, string>();
+      const nodeById = new Map(model.nodes.map((n) => [n.elementId, n]));
+      const elements = model.nodes.flatMap((node) => {
+        const placed = nodeToSceneElements(node);
+        for (const element of placed) {
+          map.set(element.id, node.elementId);
+        }
+        return placed;
+      });
+      // Draw each connection as a line between its endpoints. Endpoint geometry
+      // resolves to the stored port point when known, else the bound node's
+      // centre; an orphan endpoint (no bound node) is skipped.
+      for (const edge of model.edges) {
+        const source = edge.sourceElementId
+          ? nodeById.get(edge.sourceElementId)
+          : undefined;
+        const target = edge.targetElementId
+          ? nodeById.get(edge.targetElementId)
+          : undefined;
+        const start = edge.start ?? (source ? nodeCentre(source) : undefined);
+        const end = edge.end ?? (target ? nodeCentre(target) : undefined);
+        if (start === undefined || end === undefined) {
+          continue;
+        }
+        const drawn = convertToExcalidrawElements([
+          {
+            type: "arrow",
+            x: start.x,
+            y: start.y,
+            points: [
+              [0, 0],
+              [end.x - start.x, end.y - start.y],
+            ],
+            strokeStyle: edge.symbolId === "signal-line" ? "dashed" : "solid",
+          },
+        ]);
+        for (const element of drawn) {
+          map.set(element.id, edge.elementId);
+        }
+        elements.push(...drawn);
+      }
+      sceneToNodeRef.current = map;
+      api.updateScene({ elements });
+      if (elements.length > 0) {
+        api.scrollToContent(elements, { fitToContent: true });
+      }
+    };
+    requestAnimationFrame(() => requestAnimationFrame(apply));
   }, []);
 
   // Resolve the canvas selection to a single owned node id, or null when nothing
@@ -159,8 +215,10 @@ export function PidCanvas({
   useEffect(() => {
     modelRef.current = initialModel;
     placeCountRef.current = 0;
-    renderModel(initialModel);
-  }, [initialModel, renderModel]);
+    if (apiReady) {
+      renderModel(initialModel);
+    }
+  }, [apiReady, initialModel, renderModel]);
 
   const handlePlace = useCallback(
     (id: SymbolId) => {
@@ -215,7 +273,9 @@ export function PidCanvas({
         <Excalidraw
           excalidrawAPI={(api) => {
             apiRef.current = api;
-            renderModel(modelRef.current);
+            // Defer rendering to the effect above (gated on apiReady) so the
+            // scene update lands after Excalidraw finishes initializing.
+            setApiReady(true);
           }}
           onChange={handleChange}
         />
