@@ -39,7 +39,19 @@ import { getSymbol, getRequiredAttributes, type SymbolId } from "@/lib/symbols";
 import { EquipmentPalette } from "./equipment-palette";
 import { symbolToSkeletons } from "./symbol-to-skeleton";
 import { modelToSceneSkeletons } from "./model-to-scene";
+import {
+  addEdge,
+  buildManualEdge,
+  type ConnectorSymbolId,
+} from "./manual-connect";
 import type { PlacedNode, PlacementModel } from "./placement-model";
+
+/** The connector symbol ids that put the canvas into connect mode. */
+const CONNECTOR_IDS = new Set<SymbolId>(["process-line", "signal-line"]);
+
+function isConnectorId(id: SymbolId): id is ConnectorSymbolId {
+  return CONNECTOR_IDS.has(id);
+}
 
 /** Local-space step used to stagger successive placements so they do not stack. */
 const PLACE_STEP = 40;
@@ -52,9 +64,9 @@ interface PidCanvasProps {
   /** Called whenever the structural model changes (e.g. a placement) so the
    * shell can offer to save it through the commit pipeline. */
   readonly onModelChange: (model: PlacementModel) => void;
-  /** Called when the canvas selection changes to a single equipment node (its
-   * element id) or to nothing/multiple (null), so the shell can show/hide the
-   * attribute editor for the selected node. */
+  /** Called when the canvas selection changes to a single element — an equipment
+   * node OR a connection edge (its element id) — or to nothing/multiple (null),
+   * so the shell can show/hide the attribute editor for the selected element. */
   readonly onSelectionChange?: (selectedNodeId: string | null) => void;
 }
 
@@ -103,6 +115,7 @@ export function PidCanvas({
   // in a ref so placement handlers append without stale closures.
   const modelRef = useRef<PlacementModel>(initialModel);
   const placeCountRef = useRef(0);
+  const edgeCountRef = useRef(0);
   // Scene-element id → owning node element id. Excalidraw selection reports its
   // own element ids; this map resolves a selected shape back to its PlacedNode
   // (a node may render to several shapes, all pointing at the same node id).
@@ -110,6 +123,32 @@ export function PidCanvas({
   // Last reported selection, so onChange only fires onSelectionChange on a real
   // transition (Excalidraw's onChange fires on every interaction).
   const lastSelectionRef = useRef<string | null>(null);
+
+  // Manual-connect state (DEV-1194). When the human picks a connector from the
+  // palette the canvas enters connect mode: the next two equipment clicks become
+  // the source and target of a new bound connection. `connectMode` drives the
+  // hint banner; the ref mirrors it for stale-closure-free reads inside onChange.
+  const [connectMode, setConnectMode] = useState<ConnectorSymbolId | null>(null);
+  // True once the source endpoint has been picked (drives the banner's prompt).
+  const [sourcePicked, setSourcePicked] = useState(false);
+  const connectModeRef = useRef<ConnectorSymbolId | null>(null);
+  const pendingSourceRef = useRef<string | null>(null);
+
+  const enterConnectMode = useCallback((connector: ConnectorSymbolId) => {
+    connectModeRef.current = connector;
+    pendingSourceRef.current = null;
+    setConnectMode(connector);
+    setSourcePicked(false);
+    // Start from a clean selection so the first equipment click is unambiguous.
+    apiRef.current?.updateScene({ appState: { selectedElementIds: {} } });
+  }, []);
+
+  const cancelConnectMode = useCallback(() => {
+    connectModeRef.current = null;
+    pendingSourceRef.current = null;
+    setConnectMode(null);
+    setSourcePicked(false);
+  }, []);
 
   // Render a committed model onto the canvas (once the API is available),
   // rebuilding the scene-element → node map from scratch (server-authoritative).
@@ -159,8 +198,75 @@ export function PidCanvas({
     [],
   );
 
+  // Resolve a selection to an equipment NODE id only (not an edge), for picking
+  // connection endpoints. Returns null if the selection is empty, multiple, or an
+  // edge — connections join two distinct equipment nodes.
+  const resolveSelectedNodeId = useCallback(
+    (selectedElementIds: AppState["selectedElementIds"]): string | null => {
+      const owner = resolveSelectedNode(selectedElementIds);
+      if (owner === null) {
+        return null;
+      }
+      return modelRef.current.nodes.some((n) => n.elementId === owner)
+        ? owner
+        : null;
+    },
+    [resolveSelectedNode],
+  );
+
+  // In connect mode, capture the source on the first equipment click and build a
+  // bound connection to the second. Re-renders the model so the new edge binds in
+  // a single conversion (DEV-1193), reports the change up, and exits connect mode.
+  const handleConnectSelection = useCallback(
+    (nodeId: string | null) => {
+      if (nodeId === null) {
+        return; // empty/multiple/edge selection — keep waiting.
+      }
+      if (pendingSourceRef.current === null) {
+        pendingSourceRef.current = nodeId;
+        setSourcePicked(true);
+        return; // source captured; wait for the target.
+      }
+      if (nodeId === pendingSourceRef.current) {
+        return; // same node re-selected; a connection needs two distinct nodes.
+      }
+      const connector = connectModeRef.current;
+      const model = modelRef.current;
+      const source = model.nodes.find(
+        (n) => n.elementId === pendingSourceRef.current,
+      );
+      const target = model.nodes.find((n) => n.elementId === nodeId);
+      if (connector === null || source === undefined || target === undefined) {
+        cancelConnectMode();
+        return;
+      }
+      const n = edgeCountRef.current;
+      edgeCountRef.current = n + 1;
+      const edge = buildManualEdge({
+        elementId: `edge-${Date.now()}-${n}`,
+        connector,
+        source,
+        target,
+      });
+      const next = addEdge(model, edge);
+      modelRef.current = next;
+      cancelConnectMode();
+      renderModel(next);
+      onModelChange(next);
+    },
+    [cancelConnectMode, onModelChange, renderModel],
+  );
+
   const handleChange = useCallback(
     (_elements: readonly OrderedExcalidrawElement[], appState: AppState) => {
+      // While connecting, selections drive endpoint capture, not the attribute
+      // panel — suppress normal selection reporting until the connection is made.
+      if (connectModeRef.current !== null) {
+        handleConnectSelection(
+          resolveSelectedNodeId(appState.selectedElementIds),
+        );
+        return;
+      }
       if (onSelectionChange === undefined) {
         return;
       }
@@ -170,8 +276,27 @@ export function PidCanvas({
         onSelectionChange(selected);
       }
     },
-    [onSelectionChange, resolveSelectedNode],
+    [
+      handleConnectSelection,
+      onSelectionChange,
+      resolveSelectedNode,
+      resolveSelectedNodeId,
+    ],
   );
+
+  // Esc cancels an in-progress connection.
+  useEffect(() => {
+    if (connectMode === null) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        cancelConnectMode();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [connectMode, cancelConnectMode]);
 
   // When the server hands a freshly loaded/refreshed model, replace the canvas
   // from canonical state (never merge — server is the single source of truth).
@@ -189,9 +314,11 @@ export function PidCanvas({
       if (api === null) {
         return;
       }
-      // Connectors are edges, not placeable nodes from the palette (manual
-      // connect lives in connection-binding); ignore a connector click here.
-      if (id === "process-line" || id === "signal-line") {
+      // Connectors are edges, not placeable nodes: a connector click enters
+      // connect mode (DEV-1194), where the next two equipment clicks become the
+      // source and target of a new bound connection.
+      if (isConnectorId(id)) {
+        enterConnectMode(id);
         return;
       }
 
@@ -226,13 +353,38 @@ export function PidCanvas({
 
       onModelChange(next);
     },
-    [onModelChange],
+    [enterConnectMode, onModelChange],
   );
+
+  const connectHint =
+    connectMode === null
+      ? null
+      : !sourcePicked
+        ? `Connecting (${getSymbol(connectMode).label}) — click the SOURCE equipment.`
+        : `Click the TARGET equipment to finish the connection.`;
 
   return (
     <div className="flex h-full w-full">
       <EquipmentPalette onPlace={handlePlace} />
       <div className="relative flex-1" data-testid="pid-canvas-mount">
+        {connectMode !== null ? (
+          <div
+            data-testid="connect-hint"
+            className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center p-2"
+          >
+            <div className="pointer-events-auto flex items-center gap-3 rounded-full bg-blue-600 px-4 py-1.5 text-sm font-medium text-white shadow">
+              <span>{connectHint}</span>
+              <button
+                type="button"
+                data-testid="connect-cancel"
+                onClick={cancelConnectMode}
+                className="rounded bg-blue-500 px-2 py-0.5 text-xs hover:bg-blue-400"
+              >
+                Cancel (Esc)
+              </button>
+            </div>
+          </div>
+        ) : null}
         <Excalidraw
           excalidrawAPI={(api) => {
             apiRef.current = api;

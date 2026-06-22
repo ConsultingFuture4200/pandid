@@ -1,40 +1,43 @@
 "use client";
 
 /**
- * Equipment attribute editor (this task: let the human fill a placed symbol's
- * REQUIRED attributes so a manual Save clears the validator).
+ * Attribute editor (DEV-1136 equipment + DEV-1194 connections): let the human
+ * fill a selected element's REQUIRED attributes so a manual Save clears the
+ * validator. Drives a placed equipment NODE or a connection EDGE — the editor
+ * shell derives the field list (via `nodeAttributeFields` / `edgeAttributeFields`)
+ * and the symbol label, and passes them in.
  *
- * Given the selected {@link PlacedNode}, the panel renders one labeled input per
- * required field. The field list — and which fields use a constrained <select> —
- * is DERIVED from the symbol library via {@link nodeAttributeFields}, never
- * hardcoded per type, so it stays in lockstep with the validator's
- * `requiredAttributesRule`. Missing required fields are flagged inline so the
- * human can see exactly what still blocks a Save.
+ * The field list — and which fields use a constrained <select> — is DERIVED from
+ * the symbol library, never hardcoded per type, so it stays in lockstep with the
+ * validator's `requiredAttributesRule`. Missing required fields are flagged inline
+ * so the human can see exactly what still blocks a Save.
  *
  * Presentational + a callback: it owns no model state. On edit it calls
  * `onAttributeChange(key, value)`; the editor shell applies that to the
  * in-progress model and marks it dirty. The human is still the sole committer —
  * this only edits the pending edit; Save still runs the one commit pipeline.
  */
-import { getSymbol } from "@/lib/symbols";
-import { nodeAttributeFields } from "./attribute-fields";
-import type { PlacedNode } from "./placement-model";
+import type { AttributeField } from "./attribute-fields";
 
 interface AttributePanelProps {
-  /** The single selected equipment node whose attributes are being edited. */
-  readonly node: PlacedNode;
+  /** Symbol label for the selected element (e.g. "Pump", "Process line"). */
+  readonly label: string;
+  /** The required fields to render, pre-derived from the selected element. */
+  readonly fields: readonly AttributeField[];
   /** Called when a field's value changes (machine key + new string value). */
   readonly onAttributeChange: (key: string, value: string) => void;
 }
 
-export function AttributePanel({ node, onAttributeChange }: AttributePanelProps) {
-  const fields = nodeAttributeFields(node);
-  const label = getSymbol(node.symbolId).label;
+export function AttributePanel({
+  label,
+  fields,
+  onAttributeChange,
+}: AttributePanelProps) {
   const missingCount = fields.filter((f) => f.missing).length;
 
   return (
     <section
-      aria-label="Equipment attributes"
+      aria-label="Element attributes"
       data-testid="attribute-panel"
       className="flex flex-col gap-3 border-b p-3"
     >

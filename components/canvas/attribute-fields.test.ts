@@ -27,12 +27,15 @@ import {
 } from "@/lib/diagram";
 import { createConnectivityValidator } from "@/lib/validator";
 import {
+  edgeAttributeFields,
+  findEdge,
   findNode,
   nodeAttributeFields,
+  setEdgeAttribute,
   setNodeAttribute,
 } from "./attribute-fields";
 import { placementModelToEdit, type PlacementModel } from "./placement-model";
-import type { PlacedNode } from "./placement-model";
+import type { PlacedEdge, PlacedNode } from "./placement-model";
 
 const ACCOUNT = "22222222-2222-2222-2222-222222222222";
 
@@ -51,6 +54,67 @@ function blankColumn(): PlacedNode {
 function modelWith(node: PlacedNode): PlacementModel {
   return { nodes: [node], edges: [], viewport: { width: 800, height: 600 } };
 }
+
+/** A freshly drawn process-line edge with required fields still blank. */
+function blankEdge(): PlacedEdge {
+  return {
+    elementId: "edge-1",
+    symbolId: "process-line",
+    sourceElementId: "col-1",
+    targetElementId: "tank-1",
+    attributes: { lineId: "", service: "" },
+  };
+}
+
+describe("edgeAttributeFields (DEV-1194)", () => {
+  it("derives the connector identity (lineId) then required line attributes", () => {
+    const fields = edgeAttributeFields(blankEdge());
+    expect(fields.map((f) => f.key)).toEqual(["lineId", "service"]);
+    expect(fields[0]).toMatchObject({ key: "lineId", label: "Line ID" });
+    // All blank → all flagged missing, mirroring the validator.
+    expect(fields.every((f) => f.missing)).toBe(true);
+  });
+
+  it("clears the missing flag once a field is filled", () => {
+    const edge = { ...blankEdge(), attributes: { lineId: "L-1", service: "" } };
+    const fields = edgeAttributeFields(edge);
+    expect(fields.find((f) => f.key === "lineId")?.missing).toBe(false);
+    expect(fields.find((f) => f.key === "service")?.missing).toBe(true);
+  });
+
+  it("derives only lineId for a signal line (no extra required fields)", () => {
+    const signal: PlacedEdge = {
+      ...blankEdge(),
+      symbolId: "signal-line",
+      attributes: { lineId: "" },
+    };
+    expect(edgeAttributeFields(signal).map((f) => f.key)).toEqual(["lineId"]);
+  });
+});
+
+describe("setEdgeAttribute / findEdge (DEV-1194)", () => {
+  const model: PlacementModel = {
+    nodes: [],
+    edges: [blankEdge()],
+    viewport: { width: 800, height: 600 },
+  };
+
+  it("sets one attribute by edge id without mutating the input", () => {
+    const next = setEdgeAttribute(model, "edge-1", "lineId", "L-1");
+    expect(next.edges[0].attributes.lineId).toBe("L-1");
+    expect(model.edges[0].attributes.lineId).toBe(""); // input unchanged
+  });
+
+  it("returns the model unchanged for an unknown edge id", () => {
+    expect(setEdgeAttribute(model, "nope", "lineId", "X")).toBe(model);
+  });
+
+  it("looks up an edge by id, or null", () => {
+    expect(findEdge(model, "edge-1")?.elementId).toBe("edge-1");
+    expect(findEdge(model, null)).toBeNull();
+    expect(findEdge(model, "nope")).toBeNull();
+  });
+});
 
 describe("nodeAttributeFields", () => {
   it("derives the identity field plus the symbol's required attributes, in order", () => {

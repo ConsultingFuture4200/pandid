@@ -32,8 +32,16 @@ import {
   listPendingProposals,
 } from "@/app/(canvas)/proposal-actions";
 import { PendingProposalPanel } from "@/components/proposal-review/pending-proposal-panel";
+import { getSymbol } from "@/lib/symbols";
 import { AttributePanel } from "./attribute-panel";
-import { findNode, setNodeAttribute } from "./attribute-fields";
+import {
+  edgeAttributeFields,
+  findEdge,
+  findNode,
+  nodeAttributeFields,
+  setEdgeAttribute,
+  setNodeAttribute,
+} from "./attribute-fields";
 import type { PlacementModel } from "./placement-model";
 import { usePendingProposals } from "./use-pending-proposals";
 
@@ -70,6 +78,8 @@ export function EditorShell({
   const pendingModelRef = useRef<PlacementModel>(initialModel);
   const [pendingModel, setPendingModelState] =
     useState<PlacementModel>(initialModel);
+  // The selected element id may be a node OR a connection edge; the panel below
+  // resolves which and shows the matching attribute editor.
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -111,17 +121,21 @@ export function EditorShell({
     setSelectedNodeId(nodeId);
   }, []);
 
-  // Edit one attribute of the selected node in the in-progress model and mark it
-  // dirty, so the existing Save (single commit pipeline + validator) includes it.
-  // This only touches the pending edit — the human is still the sole committer.
+  // Edit one attribute of the selected node OR edge in the in-progress model and
+  // mark it dirty, so the existing Save (single commit pipeline + validator)
+  // includes it. This only touches the pending edit — the human is still the sole
+  // committer. Routes by whether the selected id is a node or an edge.
   const handleAttributeChange = useCallback(
     (key: string, value: string) => {
       if (selectedNodeId === null) {
         return;
       }
-      setPendingModel(
-        setNodeAttribute(pendingModelRef.current, selectedNodeId, key, value),
-      );
+      const current = pendingModelRef.current;
+      const next =
+        findNode(current, selectedNodeId) !== null
+          ? setNodeAttribute(current, selectedNodeId, key, value)
+          : setEdgeAttribute(current, selectedNodeId, key, value);
+      setPendingModel(next);
       setDirty(true);
     },
     [selectedNodeId, setPendingModel],
@@ -147,9 +161,26 @@ export function EditorShell({
     await Promise.all([refreshFromCanonical(), refreshProposals()]);
   }, [refreshFromCanonical, refreshProposals]);
 
-  // The selected node resolved against the in-progress model, so the attribute
-  // panel always edits the latest pending attributes (and hides on empty space).
+  // Resolve the selection against the in-progress model as a node OR an edge, so
+  // the attribute panel always edits the latest pending attributes (and hides on
+  // empty space). A node takes precedence (ids are distinct, but be explicit).
   const selectedNode = findNode(pendingModel, selectedNodeId);
+  const selectedEdge =
+    selectedNode === null ? findEdge(pendingModel, selectedNodeId) : null;
+  const attributePanel =
+    selectedNode !== null
+      ? {
+          key: selectedNode.elementId,
+          label: getSymbol(selectedNode.symbolId).label,
+          fields: nodeAttributeFields(selectedNode),
+        }
+      : selectedEdge !== null
+        ? {
+            key: selectedEdge.elementId,
+            label: getSymbol(selectedEdge.symbolId).label,
+            fields: edgeAttributeFields(selectedEdge),
+          }
+        : null;
 
   return (
     <div className="flex h-screen w-screen flex-col">
@@ -208,10 +239,11 @@ export function EditorShell({
           />
         </div>
         <aside className="flex w-80 shrink-0 flex-col overflow-y-auto border-l">
-          {selectedNode !== null ? (
+          {attributePanel !== null ? (
             <AttributePanel
-              key={selectedNode.elementId}
-              node={selectedNode}
+              key={attributePanel.key}
+              label={attributePanel.label}
+              fields={attributePanel.fields}
               onAttributeChange={handleAttributeChange}
             />
           ) : null}

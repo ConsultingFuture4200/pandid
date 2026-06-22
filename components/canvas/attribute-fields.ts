@@ -24,7 +24,11 @@ import {
   type SymbolId,
 } from "@/lib/symbols";
 import type { JsonObject, JsonValue } from "@/lib/types";
-import type { PlacedNode, PlacementModel } from "./placement-model";
+import type {
+  PlacedEdge,
+  PlacedNode,
+  PlacementModel,
+} from "./placement-model";
 
 /** Identity attribute key per kind — mirrors the validator (PRD §6). */
 const EQUIPMENT_TAG_KEY = "tag";
@@ -86,32 +90,37 @@ function fieldSatisfied(
 }
 
 /**
- * Derive the ordered list of required fields for a node, pre-filled from its
- * current attributes and flagged for missingness — driven entirely by the
- * symbol library, never hardcoded per type. The identity field (`tag`/`lineId`)
- * leads, then the symbol's declared required attributes in definition order.
+ * Derive the ordered list of required fields for any placed symbol (node OR
+ * edge), pre-filled from its current attributes and flagged for missingness —
+ * driven entirely by the symbol library, never hardcoded per type. The identity
+ * field (`tag` for equipment, `lineId` for a connector) leads, then the symbol's
+ * declared required attributes in definition order. Shared by the node and edge
+ * derivations so both stay in lockstep with the validator.
  */
-export function nodeAttributeFields(node: PlacedNode): readonly AttributeField[] {
+function symbolAttributeFields(
+  symbolId: SymbolId,
+  attributes: JsonObject,
+): readonly AttributeField[] {
   const fields: AttributeField[] = [];
 
-  const identityKey = identityKeyFor(node.symbolId);
+  const identityKey = identityKeyFor(symbolId);
   fields.push({
     key: identityKey,
     label: identityKey === EQUIPMENT_TAG_KEY ? "Tag" : "Line ID",
     type: "string",
-    value: asInputValue(node.attributes, identityKey),
-    missing: !fieldSatisfied(node.attributes, identityKey, "string", undefined),
+    value: asInputValue(attributes, identityKey),
+    missing: !fieldSatisfied(attributes, identityKey, "string", undefined),
   });
 
-  for (const required of getRequiredAttributes(node.symbolId)) {
+  for (const required of getRequiredAttributes(symbolId)) {
     fields.push({
       key: required.key,
       label: required.label,
       type: required.type,
       ...(required.options !== undefined ? { options: required.options } : {}),
-      value: asInputValue(node.attributes, required.key),
+      value: asInputValue(attributes, required.key),
       missing: !fieldSatisfied(
-        node.attributes,
+        attributes,
         required.key,
         required.type,
         required.options,
@@ -120,6 +129,17 @@ export function nodeAttributeFields(node: PlacedNode): readonly AttributeField[]
   }
 
   return fields;
+}
+
+/** Required fields for a placed equipment node (see {@link symbolAttributeFields}). */
+export function nodeAttributeFields(node: PlacedNode): readonly AttributeField[] {
+  return symbolAttributeFields(node.symbolId, node.attributes);
+}
+
+/** Required fields for a connection edge: identity `lineId` then required line
+ * attributes (e.g. `service`). Drives the edge attribute editor (DEV-1194). */
+export function edgeAttributeFields(edge: PlacedEdge): readonly AttributeField[] {
+  return symbolAttributeFields(edge.symbolId, edge.attributes);
 }
 
 /**
@@ -156,4 +176,41 @@ export function findNode(
     return null;
   }
   return model.nodes.find((n) => n.elementId === nodeElementId) ?? null;
+}
+
+/**
+ * Return a new model with a single attribute on one edge (by element id) set to
+ * `value`. Pure: never mutates the input model/edge. An edge id that is not
+ * present yields the model unchanged. Mirrors {@link setNodeAttribute} for the
+ * edge attribute editor (DEV-1194).
+ */
+export function setEdgeAttribute(
+  model: PlacementModel,
+  edgeElementId: string,
+  key: string,
+  value: string,
+): PlacementModel {
+  let changed = false;
+  const edges = model.edges.map((edge) => {
+    if (edge.elementId !== edgeElementId) {
+      return edge;
+    }
+    changed = true;
+    return { ...edge, attributes: { ...edge.attributes, [key]: value } };
+  });
+  if (!changed) {
+    return model;
+  }
+  return { ...model, edges };
+}
+
+/** Look up an edge by its element id, or null when absent. */
+export function findEdge(
+  model: PlacementModel,
+  edgeElementId: string | null,
+): PlacedEdge | null {
+  if (edgeElementId === null) {
+    return null;
+  }
+  return model.edges.find((e) => e.elementId === edgeElementId) ?? null;
 }
