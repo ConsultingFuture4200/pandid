@@ -38,6 +38,7 @@ import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/ty
 import { getSymbol, getRequiredAttributes, type SymbolId } from "@/lib/symbols";
 import { EquipmentPalette } from "./equipment-palette";
 import { symbolToSkeletons } from "./symbol-to-skeleton";
+import { modelToSceneSkeletons } from "./model-to-scene";
 import type { PlacedNode, PlacementModel } from "./placement-model";
 
 /** Local-space step used to stagger successive placements so they do not stack. */
@@ -73,12 +74,6 @@ function nodeToSceneElements(
       size: node.size,
     }),
   );
-}
-
-/** The scene-space centre of a placed node, used as a connection endpoint when
- * no resolved port point is stored. */
-function nodeCentre(node: PlacedNode): { x: number; y: number } {
-  return { x: node.x + node.size / 2, y: node.y + node.size / 2 };
 }
 
 /** Seed default attributes for a freshly placed symbol: its required-attribute
@@ -130,48 +125,16 @@ export function PidCanvas({
       if (api === null) {
         return;
       }
-      const map = new Map<string, string>();
-      const nodeById = new Map(model.nodes.map((n) => [n.elementId, n]));
-      const elements = model.nodes.flatMap((node) => {
-        const placed = nodeToSceneElements(node);
-        for (const element of placed) {
-          map.set(element.id, node.elementId);
-        }
-        return placed;
+      // Build the full skeleton list (equipment bodies + connection arrows) and
+      // convert it in a SINGLE call so each arrow's `start`/`end` `{ id }`
+      // bindings resolve against the node bodies and the drawn line FOLLOWS node
+      // drags (DEV-1193). `regenerateIds: false` keeps the deterministic ids the
+      // scene→node map is keyed on, so selection resolution needs no read-back.
+      const { skeletons, sceneToOwner } = modelToSceneSkeletons(model);
+      const elements = convertToExcalidrawElements([...skeletons], {
+        regenerateIds: false,
       });
-      // Draw each connection as a line between its endpoints. Endpoint geometry
-      // resolves to the stored port point when known, else the bound node's
-      // centre; an orphan endpoint (no bound node) is skipped.
-      for (const edge of model.edges) {
-        const source = edge.sourceElementId
-          ? nodeById.get(edge.sourceElementId)
-          : undefined;
-        const target = edge.targetElementId
-          ? nodeById.get(edge.targetElementId)
-          : undefined;
-        const start = edge.start ?? (source ? nodeCentre(source) : undefined);
-        const end = edge.end ?? (target ? nodeCentre(target) : undefined);
-        if (start === undefined || end === undefined) {
-          continue;
-        }
-        const drawn = convertToExcalidrawElements([
-          {
-            type: "arrow",
-            x: start.x,
-            y: start.y,
-            points: [
-              [0, 0],
-              [end.x - start.x, end.y - start.y],
-            ],
-            strokeStyle: edge.symbolId === "signal-line" ? "dashed" : "solid",
-          },
-        ]);
-        for (const element of drawn) {
-          map.set(element.id, edge.elementId);
-        }
-        elements.push(...drawn);
-      }
-      sceneToNodeRef.current = map;
+      sceneToNodeRef.current = new Map(sceneToOwner);
       api.updateScene({ elements });
       if (elements.length > 0) {
         api.scrollToContent(elements, { fitToContent: true });
