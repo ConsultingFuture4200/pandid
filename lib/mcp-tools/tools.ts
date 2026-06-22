@@ -28,6 +28,8 @@
 import type { TransportContext } from "@/lib/claude-transport";
 import { listEquipmentTypes, type EquipmentTypeSummary } from "@/lib/symbols";
 import { renderDiagramSvg } from "@/lib/diagram/render-svg";
+import type { VersionSnapshot } from "@/lib/diagram";
+import type { ElementMetadata } from "@/lib/types";
 import {
   createConnectivityValidator,
   type ValidationReport,
@@ -42,8 +44,28 @@ import {
 } from "./canonical-state";
 import {
   McpReadError,
+  type ActiveDiagram,
   type ActiveDiagramSource,
 } from "./active-diagram-source";
+import {
+  effectiveSceneFromSnapshot,
+  editFromScene,
+} from "./scene-edit";
+import type { ProposeOp } from "./propose-ops";
+
+/**
+ * Supplies the active diagram's PENDING proposal ops (in stage order) so a read
+ * tool can project committed + pending state. Optional: a server with no pending
+ * overlay (or the read tools used in isolation) projects committed-only.
+ */
+export interface PendingOpsProvider {
+  pendingOps(context: TransportContext): Promise<readonly ProposeOp[]>;
+}
+
+/** Sentinel ids for a synthetic snapshot projecting an effective (committed +
+ * pending) scene that has no committed version of its own yet. */
+const SYNTHETIC_VERSION_ID = "00000000-0000-4000-8000-0000000000ef";
+const SYNTHETIC_DIAGRAM_ID = "00000000-0000-4000-8000-0000000000ee";
 
 /** Common envelope: the active diagram a read tool resolved its answer from. */
 interface ActiveDiagramRef {
@@ -93,6 +115,13 @@ export class McpReadTools {
   constructor(
     private readonly source: ActiveDiagramSource,
     validator: Validator = createConnectivityValidator(),
+    /**
+     * Optional pending-op overlay. When supplied, `get_active_diagram` projects
+     * committed + PENDING state so Claude can see (and reference the element/port
+     * ids of) changes it staged but the human has not yet accepted. The other read
+     * tools stay committed-only (they report the validated, saved diagram).
+     */
+    private readonly pendingOps?: PendingOpsProvider,
   ) {
     this.validator = validator;
   }
@@ -105,7 +134,7 @@ export class McpReadTools {
    *   diagram; `unauthorized` if the diagram is not owned by the account.
    */
   async getActiveDiagram(context: TransportContext): Promise<ActiveDiagramResult> {
-    const { ref, state } = await this.loadState(context);
+    const { ref, state } = await this.loadEffectiveState(context);
     return {
       diagram: ref,
       equipment: state.equipment,
@@ -179,6 +208,74 @@ export class McpReadTools {
         : buildCanonicalState(active.snapshot);
     return { ref, state };
   }
+
+  /**
+   * As {@link loadState}, but overlaying PENDING proposal ops onto committed state
+   * when a {@link PendingOpsProvider} is wired. With no provider or no pending ops,
+   * this is identical to committed-only `loadState`. The overlay lets Claude see
+   * what it staged (with real element/port ids) before the human accepts.
+   */
+  private async loadEffectiveState(
+    context: TransportContext,
+  ): Promise<{ ref: ActiveDiagramRef; state: CanonicalState }> {
+    if (this.pendingOps === undefined) {
+      return this.loadState(context);
+    }
+    const active = await this.source.getActiveDiagram(context);
+    const ref: ActiveDiagramRef = {
+      diagramId: active.diagram.id,
+      name: active.diagram.name,
+      versionId: active.snapshot?.version.id ?? null,
+    };
+    const ops = await this.pendingOps.pendingOps(context);
+    if (ops.length === 0) {
+      // No overlay needed — project committed state as-is.
+      const state =
+        active.snapshot === null
+          ? EMPTY_STATE
+          : buildCanonicalState(active.snapshot);
+      return { ref, state };
+    }
+    // Build the effective scene (committed + pending) and project it through a
+    // synthetic snapshot — the same read-side projection committed state uses, so
+    // the shape Claude sees here matches what accept will eventually commit.
+    const scene = effectiveSceneFromSnapshot(active, ops);
+    const snapshot = effectiveSnapshot(active, scene);
+    return { ref, state: buildCanonicalState(snapshot) };
+  }
+}
+
+/**
+ * Build a synthetic {@link VersionSnapshot} that carries an effective scene
+ * (committed + pending). The scene JSON comes from `editFromScene` (the `pid`
+ * projection the read side reads); metadata rows are synthesized from the edit's
+ * elements (the authoritative attribute store the projection joins on). Reuses the
+ * committed version's ids where available so the projection's version id is real.
+ */
+function effectiveSnapshot(
+  active: ActiveDiagram,
+  scene: Parameters<typeof editFromScene>[0],
+): VersionSnapshot {
+  const edit = editFromScene(scene);
+  const baseVersion = active.snapshot?.version;
+  const versionId = baseVersion?.id ?? SYNTHETIC_VERSION_ID;
+  const diagramId = baseVersion?.diagramId ?? active.diagram.id ?? SYNTHETIC_DIAGRAM_ID;
+  const createdAt = baseVersion?.createdAt ?? "1970-01-01T00:00:00.000Z";
+  const metadata: ElementMetadata[] = edit.elements.map((el) => ({
+    diagramVersionId: versionId,
+    elementId: el.id,
+    equipmentType: el.equipmentType,
+    attributes: el.attributes,
+  }));
+  return {
+    version: {
+      id: versionId,
+      diagramId,
+      excalidrawScene: edit.scene,
+      createdAt,
+    },
+    metadata,
+  };
 }
 
 /** The projection of a diagram that has no saved version (nothing placed yet). */

@@ -54,6 +54,23 @@ export interface AcceptResult {
   readonly commit: Awaited<ReturnType<DiagramCommitPipeline["commit"]>>;
 }
 
+/**
+ * Materializes a stored op (opaque JSON) into the whole-scene {@link DiagramEdit}
+ * to commit, by applying it to the diagram's CURRENT committed state. Injected so
+ * the op-application logic stays in `lib/mcp-tools` (which owns the `ProposeOp`
+ * shape) and `lib/proposals` never imports it — keeping the layering one-way.
+ *
+ * This is the fix for proposal clobbering: accept re-applies the delta to whatever
+ * is committed NOW, instead of committing a full scene computed against a stale
+ * baseline. An op that no longer applies cleanly (e.g. its endpoint was never
+ * committed) is caught by the pipeline's re-validation — the commit is blocked.
+ */
+export type MaterializeEdit = (input: {
+  accountId: string;
+  diagramId: string;
+  op: JsonObject;
+}) => Promise<DiagramEdit>;
+
 export class ProposalService {
   constructor(
     private readonly repo: ProposalRepository,
@@ -65,6 +82,12 @@ export class ProposalService {
      * proposals it can stage, see, or decide.
      */
     private readonly diagrams: Pick<DiagramRepository, "getDiagram">,
+    /**
+     * Re-materializes a stored op against current committed state on accept (see
+     * {@link MaterializeEdit}). Optional: when absent (or a proposal has no stored
+     * op), accept commits the stored full `edit` as before — the legacy path.
+     */
+    private readonly materializeEdit?: MaterializeEdit,
   ) {}
 
   /**
@@ -94,17 +117,30 @@ export class ProposalService {
 
     return this.repo.create({
       diagramId: parsed.diagramId,
-      // Both payloads are JSON-safe by construction (a Zod-parsed edit; a report
-      // of JSON primitives). Parse through `jsonObjectSchema` to both prove that
-      // at the boundary and produce the `JsonObject` the repository stores.
-      stagedChange: this.toJsonObject({ edit: parsed.edit }),
+      // All payloads are JSON-safe by construction (a Zod-parsed edit; an opaque
+      // JSON op; a report of JSON primitives). Parse through `jsonObjectSchema` to
+      // both prove that at the boundary and produce the `JsonObject` stored.
+      // `op` (when present) is the source of truth for accept; `edit` is kept for
+      // the editor's pending overlay/SVG and the stage-time validation above.
+      stagedChange: this.toJsonObject(
+        parsed.op !== undefined
+          ? { op: parsed.op, edit: parsed.edit }
+          : { edit: parsed.edit },
+      ),
       validatorReport: this.toJsonObject(report),
     });
   }
 
   /**
-   * Accept a pending proposal (FR-10): re-validate and commit the staged edit
-   * through the single commit pipeline, then mark the proposal `accepted`.
+   * Accept a pending proposal (FR-10): re-validate and commit through the single
+   * commit pipeline, then mark the proposal `accepted`.
+   *
+   * The edit committed is the stored op MATERIALIZED against CURRENT committed
+   * state (via the injected {@link MaterializeEdit}) — not the stage-time `edit`,
+   * which was computed against a possibly-stale baseline. This is what makes
+   * accepting one proposal never erase another already-committed change. A proposal
+   * with no stored op (legacy row) or a service with no materializer falls back to
+   * committing the stored `edit`.
    *
    * The proposal is flipped to `accepted` FIRST (guarded to `pending`), so a
    * second accept/reject can't race a commit. If the commit then fails — e.g. the
@@ -123,7 +159,7 @@ export class ProposalService {
     proposalId: string;
   }): Promise<AcceptResult> {
     const decided = await this.decide({ ...input, status: "accepted" });
-    const { edit } = this.readStagedEdit(decided);
+    const edit = await this.resolveAcceptEdit(decided, input.accountId, input.diagramId);
 
     const commit = await this.pipeline.commit({
       accountId: input.accountId,
@@ -155,6 +191,30 @@ export class ProposalService {
     diagramId: string;
   }): Promise<Proposal[]> {
     return this.repo.listPending(input);
+  }
+
+  /**
+   * The stored ops of a diagram's pending proposals, in STAGE ORDER (oldest
+   * first) — the order they must be re-applied to reconstruct effective state
+   * (committed + pending). Used by the mcp layer to build the base scene a new op
+   * stages against and the read tools project. `listPending` returns newest-first,
+   * so we reverse. Legacy proposals without a stored op are skipped (their effect
+   * can't be replayed as a delta).
+   */
+  async listPendingOps(input: {
+    accountId: string;
+    diagramId: string;
+  }): Promise<JsonObject[]> {
+    const pending = await this.repo.listPending(input);
+    const ops: JsonObject[] = [];
+    // newest-first → oldest-first (stage order).
+    for (let i = pending.length - 1; i >= 0; i -= 1) {
+      const op = this.readStagedOp(pending[i]);
+      if (op !== undefined) {
+        ops.push(op);
+      }
+    }
+    return ops;
   }
 
   /**
@@ -253,6 +313,31 @@ export class ProposalService {
       );
     }
     return parsed.data;
+  }
+
+  /**
+   * Resolve the edit to commit on accept. Prefers re-materializing the stored op
+   * against current committed state (the no-clobber path); falls back to the
+   * stored full `edit` for a legacy row (no op) or when no materializer is wired.
+   */
+  private async resolveAcceptEdit(
+    proposal: Proposal,
+    accountId: string,
+    diagramId: string,
+  ): Promise<DiagramEdit> {
+    const op = this.readStagedOp(proposal);
+    if (op !== undefined && this.materializeEdit !== undefined) {
+      return this.materializeEdit({ accountId, diagramId, op });
+    }
+    return this.readStagedEdit(proposal).edit;
+  }
+
+  /** Read the stored op (the delta) off a persisted proposal, or undefined for a
+   * legacy row that stored only the full edit. */
+  private readStagedOp(proposal: Proposal): JsonObject | undefined {
+    const change = proposal.stagedChange as { op?: unknown };
+    const parsed = jsonObjectSchema.safeParse(change.op);
+    return parsed.success ? parsed.data : undefined;
   }
 
   /** Read the staged edit back off a persisted proposal for the accept path.

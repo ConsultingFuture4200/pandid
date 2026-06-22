@@ -19,10 +19,10 @@ import { createConnectivityValidator } from "@/lib/validator";
 import { InMemoryProposalRepository } from "./in-memory-repository";
 import { PostgresProposalRepository } from "./postgres-repository";
 import type { ProposalRepository } from "./repository";
-import { ProposalService } from "./service";
+import { ProposalService, type MaterializeEdit } from "./service";
 
 export { ProposalService } from "./service";
-export type { AcceptResult } from "./service";
+export type { AcceptResult, MaterializeEdit } from "./service";
 export {
   ProposalError,
   stageProposalInputSchema,
@@ -64,12 +64,21 @@ export function getProposalRepository(): ProposalRepository {
  * Convenience: a `ProposalService` wired over the resolved proposal repository,
  * the process-wide commit pipeline (the single committer), the v1 connectivity
  * validator (the staging gate), and the diagram repository (ownership scope).
+ *
+ * Pass a {@link MaterializeEdit} to enable the no-clobber accept path (re-apply a
+ * proposal's stored delta against current committed state). It is injected from
+ * `lib/mcp-tools` (the composition root: `getMcpProposeTools`) so this module
+ * never imports the op-application logic. Omitting it keeps the legacy behavior
+ * (accept commits the stored full edit).
  */
-export function getProposalService(): ProposalService {
+export function getProposalService(
+  materializeEdit?: MaterializeEdit,
+): ProposalService {
   return new ProposalService(
     getProposalRepository(),
     getCommitPipeline(),
     createConnectivityValidator(),
     getDiagramRepository(),
+    materializeEdit,
   );
 }

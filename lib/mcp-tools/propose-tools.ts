@@ -39,7 +39,6 @@
  */
 import { z } from "zod";
 import type { TransportContext } from "@/lib/claude-transport";
-import type { JsonObject } from "@/lib/types";
 import { isSymbolId, type SymbolId } from "@/lib/symbols";
 import { renderDiagramSvg } from "@/lib/diagram/render-svg";
 import type { DiagramEdit } from "@/lib/diagram/commit";
@@ -61,9 +60,18 @@ import { McpProposeError } from "./propose-error";
 import {
   applyOp,
   editFromScene,
-  sceneFromSnapshot,
-  type ProposeOp,
+  effectiveSceneFromSnapshot,
 } from "./scene-edit";
+import {
+  addEquipmentArgsSchema,
+  connectArgsSchema,
+  deleteElementArgsSchema,
+  moveOrRelabelArgsSchema,
+  opToJson,
+  parseProposeOp,
+  setMetadataArgsSchema,
+  type ProposeOp,
+} from "./propose-ops";
 
 /** Structured view of the state a staged edit would produce (FR-9). */
 export interface ProposedDiagramState {
@@ -103,63 +111,15 @@ export interface ValidatorReportView {
   }>;
 }
 
-// ── Tool argument schemas (Zod at all boundaries — CLAUDE.md) ────────────────
-
-const attributesSchema = z
-  .record(z.string(), z.unknown())
-  .transform((v) => v as JsonObject);
-
-const addEquipmentArgsSchema = z.object({
-  equipmentType: z.string().min(1),
-  x: z.number(),
-  y: z.number(),
-  size: z.number().positive().optional(),
-  /** Element attributes (tag + required type-specific fields). */
-  attributes: attributesSchema.optional(),
-});
-export type AddEquipmentArgs = z.infer<typeof addEquipmentArgsSchema>;
-
-const connectArgsSchema = z.object({
-  sourceElementId: z.string().min(1),
-  sourcePort: z.string().min(1),
-  targetElementId: z.string().min(1),
-  targetPort: z.string().min(1),
-  /** Dashed signal line vs solid process line. Defaults to process. */
-  signal: z.boolean().optional(),
-  /** Optional line id for the connector's metadata. */
-  lineId: z.string().min(1).optional(),
-  /**
-   * Connector attributes (e.g. a process line's required `service`). Merged with
-   * `lineId`. A process line that omits a required attribute is REFUSED at
-   * staging (FR-8), so set them here.
-   */
-  attributes: attributesSchema.optional(),
-});
-export type ConnectArgs = z.infer<typeof connectArgsSchema>;
-
-const setMetadataArgsSchema = z.object({
-  elementId: z.string().min(1),
-  attributes: attributesSchema,
-});
-export type SetMetadataArgs = z.infer<typeof setMetadataArgsSchema>;
-
-const deleteElementArgsSchema = z.object({
-  elementId: z.string().min(1),
-});
-export type DeleteElementArgs = z.infer<typeof deleteElementArgsSchema>;
-
-const moveOrRelabelArgsSchema = z
-  .object({
-    elementId: z.string().min(1),
-    x: z.number().optional(),
-    y: z.number().optional(),
-    tag: z.string().min(1).optional(),
-  })
-  .refine(
-    (v) => v.x !== undefined || v.y !== undefined || v.tag !== undefined,
-    "Provide at least one of `x`/`y` (to move) or `tag` (to relabel).",
-  );
-export type MoveOrRelabelArgs = z.infer<typeof moveOrRelabelArgsSchema>;
+// ── Tool argument schemas live in `./propose-ops` (shared with the op union and
+//    the accept-materialize re-parse). Re-exported here for the registry/index. ──
+export type {
+  AddEquipmentArgs,
+  ConnectArgs,
+  DeleteElementArgs,
+  MoveOrRelabelArgs,
+  SetMetadataArgs,
+} from "./propose-ops";
 
 /**
  * The propose-tool surface. Constructed once per server over the canonical
@@ -177,14 +137,17 @@ export class McpProposeTools {
     context: TransportContext,
     rawArgs: unknown,
   ): Promise<ProposeToolResult> {
-    const args = this.parseArgs(addEquipmentArgsSchema, rawArgs);
-    if (!isSymbolId(args.equipmentType)) {
+    const parsed = this.parseArgs(addEquipmentArgsSchema, rawArgs);
+    if (!isSymbolId(parsed.equipmentType)) {
       throw new McpProposeError(
         "invalid-args",
-        `Unknown equipment type "${args.equipmentType}". Call ` +
+        `Unknown equipment type "${parsed.equipmentType}". Call ` +
           "list_equipment_types to see the available symbols, then retry.",
       );
     }
+    // Assign the element id NOW so the stored op is a deterministic delta (the
+    // same id on every re-apply), letting a later connect reference this element.
+    const args = { ...parsed, elementId: parsed.elementId ?? newOpElementId("eq") };
     return this.stageOp(context, { kind: "add-equipment", args });
   }
 
@@ -193,7 +156,12 @@ export class McpProposeTools {
     context: TransportContext,
     rawArgs: unknown,
   ): Promise<ProposeToolResult> {
-    const args = this.parseArgs(connectArgsSchema, rawArgs);
+    const parsed = this.parseArgs(connectArgsSchema, rawArgs);
+    // Assign the connector id NOW (deterministic delta — see addEquipment).
+    const args = {
+      ...parsed,
+      elementId: parsed.elementId ?? newOpElementId(parsed.signal ? "sig" : "line"),
+    };
     return this.stageOp(context, { kind: "connect", args });
   }
 
@@ -241,10 +209,15 @@ export class McpProposeTools {
     op: ProposeOp,
   ): Promise<ProposeToolResult> {
     const active = await this.loadActive(context);
-    const scene = sceneFromSnapshot(active);
+    // Base = EFFECTIVE state: committed + all PENDING ops in stage order, so a new
+    // op (e.g. `connect`) can reference elements added by still-pending proposals.
+    const pendingOps = await this.pendingOps(context, active.diagram.id);
+    const scene = effectiveSceneFromSnapshot(active, pendingOps);
     // `applyOp` throws `McpProposeError` for an op naming a missing element (a
     // bad request, not an invalid diagram); that propagates to the caller.
     const next = applyOp(scene, op);
+    // The effective+new full scene: kept on the proposal for stage-time validation
+    // (catches cross-pending issues) and the editor's pending overlay/SVG.
     const edit = editFromScene(next);
 
     let proposalId: string;
@@ -253,6 +226,9 @@ export class McpProposeTools {
         accountId: context.accountId,
         diagramId: active.diagram.id,
         edit,
+        // The DELTA is the source of truth for accept (re-materialized against
+        // current committed state, so accept never clobbers a prior commit).
+        op: opToJson(op),
       });
       proposalId = proposal.id;
     } catch (error) {
@@ -269,6 +245,28 @@ export class McpProposeTools {
       state: { equipment: view.equipment, connections: view.connections },
       svg: view.svg,
     };
+  }
+
+  /** The diagram's pending proposal ops, in stage order, parsed back into typed
+   * `ProposeOp`s. Legacy rows without a stored op are skipped by the service. A
+   * stored op that fails to re-parse is dropped (defensive; should not happen for
+   * rows this code wrote). */
+  private async pendingOps(
+    context: TransportContext,
+    diagramId: string,
+  ): Promise<ProposeOp[]> {
+    const stored = await this.proposals.listPendingOps({
+      accountId: context.accountId,
+      diagramId,
+    });
+    const ops: ProposeOp[] = [];
+    for (const json of stored) {
+      const op = parseProposeOp(json);
+      if (op !== null) {
+        ops.push(op);
+      }
+    }
+    return ops;
   }
 
   /** Resolve + validate the account's active diagram, mapping read-side failures
@@ -348,6 +346,13 @@ export class McpProposeTools {
     }
     return parsed.data;
   }
+}
+
+/** Mint a stable, unique element id for a newly proposed element/connector. Stored
+ * in the op so re-applying the delta is deterministic (the no-clobber design needs
+ * a stage-time-fixed id, not one minted per `applyOp`). Prefix mirrors the kind. */
+function newOpElementId(prefix: string): string {
+  return `${prefix}-${crypto.randomUUID()}`;
 }
 
 /** Sentinel version id for the read-side projection of a not-yet-committed edit.

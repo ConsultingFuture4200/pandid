@@ -27,6 +27,8 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth/current-user";
 import { getDiagramService } from "@/lib/diagram";
 import { getProposalService } from "@/lib/proposals";
+import { DiagramServiceActiveSource } from "@/lib/mcp-tools";
+import { createMaterializeEdit } from "@/lib/mcp-tools/propose-index";
 import { getScopingService, ScopingError } from "@/lib/scoping";
 import { ProposalError } from "@/lib/proposals";
 import { CommitBlockedError } from "@/lib/diagram/commit";
@@ -105,7 +107,11 @@ export async function acceptProposalAction(
   }
 
   try {
-    await getProposalService().accept({
+    // Wire the accept-time materializer so the proposal's stored DELTA is re-applied
+    // to CURRENT committed state on accept — accepting one proposal never clobbers
+    // another already-committed one (the human is the committer here, so the
+    // no-clobber path must be wired on THIS browser action, not just the MCP one).
+    await acceptingProposalService().accept({
       accountId: ctx.accountId,
       diagramId: ctx.diagramId,
       proposalId: ctx.proposalId,
@@ -146,6 +152,14 @@ export async function rejectProposalAction(
 }
 
 // ── internals ────────────────────────────────────────────────────────────────
+
+/** The proposal service for the ACCEPT path: wired with the no-clobber accept
+ * materializer (re-apply the stored op to current committed state). Read/list/reject
+ * use the plain `getProposalService()` — only accept needs the materializer. */
+function acceptingProposalService(): ReturnType<typeof getProposalService> {
+  const source = new DiagramServiceActiveSource(getDiagramService());
+  return getProposalService(createMaterializeEdit(source));
+}
 
 /** Resolved decision context (account from session + active diagram + proposal id),
  * or a user-facing error string when the request can't be scoped. */
