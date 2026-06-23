@@ -209,6 +209,188 @@ const INSTRUMENT_BUBBLE: SymbolDefinition = {
   ports: [{ id: "process", x: 50, y: 75 }],
 };
 
+// ── Extraction-equipment set expansion (DEV-1200) ────────────────────────────
+// Clean ISA-ish glyphs in the same 100x100 local box, using only the existing
+// primitive shapes (rectangle/ellipse/triangle/line) so the golden renderer and
+// the canvas adapter need no changes. Approximate ISA-5.1; not certified.
+
+const VESSEL: SymbolDefinition = {
+  id: "vessel",
+  label: "Vessel / tank",
+  kind: "equipment",
+  // Generic labeled vessel — covers holding/warm/feed tanks and unlabeled boxes.
+  requiredAttributes: [],
+  primitives: [{ shape: "rectangle", x: 20, y: 15, width: 60, height: 70 }],
+  ports: [
+    { id: "top", x: 50, y: 15 },
+    { id: "bottom", x: 50, y: 85 },
+    { id: "left", x: 20, y: 50 },
+    { id: "right", x: 80, y: 50 },
+  ],
+};
+
+const CENTRIFUGE: SymbolDefinition = {
+  id: "centrifuge",
+  label: "Centrifuge",
+  kind: "equipment",
+  requiredAttributes: [],
+  // Horizontal basket: an ellipse bowl with a centre axis line.
+  primitives: [
+    { shape: "ellipse", x: 15, y: 25, width: 70, height: 50 },
+    { shape: "line", x: 0, y: 0, width: 0, height: 0, points: [[15, 50], [85, 50]] },
+  ],
+  ports: [
+    { id: "feed", x: 50, y: 25 },
+    { id: "left", x: 15, y: 50 },
+    { id: "right", x: 85, y: 50 },
+    { id: "discharge", x: 50, y: 75 },
+  ],
+};
+
+const FILTER: SymbolDefinition = {
+  id: "filter",
+  label: "Filter",
+  kind: "equipment",
+  requiredAttributes: [{ key: "micronRating", label: "Micron rating", type: "string" }],
+  // Housing with two cartridge columns.
+  primitives: [
+    { shape: "rectangle", x: 25, y: 15, width: 50, height: 70 },
+    { shape: "rectangle", x: 35, y: 25, width: 10, height: 50 },
+    { shape: "rectangle", x: 55, y: 25, width: 10, height: 50 },
+  ],
+  ports: [
+    { id: "in", x: 25, y: 50 },
+    { id: "out", x: 75, y: 50 },
+  ],
+};
+
+const EVAPORATOR: SymbolDefinition = {
+  id: "evaporator",
+  label: "Evaporator",
+  kind: "equipment",
+  requiredAttributes: [{ key: "duty", label: "Duty", type: "string" }],
+  // Tall shell with an internal tube bundle and a tapered (coned) bottom.
+  primitives: [
+    { shape: "rectangle", x: 35, y: 10, width: 30, height: 70 },
+    { shape: "line", x: 0, y: 0, width: 0, height: 0, points: [[42, 15], [42, 75]] },
+    { shape: "line", x: 0, y: 0, width: 0, height: 0, points: [[50, 15], [50, 75]] },
+    { shape: "line", x: 0, y: 0, width: 0, height: 0, points: [[58, 15], [58, 75]] },
+    { shape: "triangle", x: 0, y: 0, width: 0, height: 0, points: [[35, 80], [65, 80], [50, 92]] },
+  ],
+  ports: [
+    { id: "top", x: 50, y: 10 },
+    { id: "bottom", x: 50, y: 92 },
+    { id: "side", x: 65, y: 45 },
+  ],
+};
+
+const CONDENSER: SymbolDefinition = {
+  id: "condenser",
+  label: "Condenser",
+  kind: "equipment",
+  requiredAttributes: [{ key: "duty", label: "Duty", type: "string" }],
+  // Shell with an internal serpentine cooling coil.
+  primitives: [
+    { shape: "rectangle", x: 25, y: 20, width: 50, height: 60 },
+    {
+      shape: "line",
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      points: [[30, 30], [45, 40], [30, 50], [45, 60], [30, 70]],
+    },
+  ],
+  ports: [
+    { id: "inlet", x: 50, y: 20 },
+    { id: "outlet", x: 50, y: 80 },
+  ],
+};
+
+const HEAT_EXCHANGER: SymbolDefinition = {
+  id: "heat-exchanger",
+  label: "Heat exchanger",
+  kind: "equipment",
+  requiredAttributes: [
+    { key: "duty", label: "Duty", type: "string" },
+    { key: "medium", label: "Medium", type: "string" },
+  ],
+  // Classic shell box with a zig-zag exchange element through it.
+  primitives: [
+    { shape: "rectangle", x: 20, y: 30, width: 60, height: 40 },
+    {
+      shape: "line",
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      points: [[25, 50], [40, 40], [55, 60], [70, 50]],
+    },
+  ],
+  ports: [
+    { id: "left", x: 20, y: 50 },
+    { id: "right", x: 80, y: 50 },
+    { id: "top", x: 50, y: 30 },
+    { id: "bottom", x: 50, y: 70 },
+  ],
+};
+
+const DIAPHRAGM_PUMP: SymbolDefinition = {
+  id: "diaphragm-pump",
+  label: "Diaphragm pump (AODP)",
+  kind: "equipment",
+  requiredAttributes: [{ key: "pumpType", label: "Type", type: "string" }],
+  // Circular body with two opposed chevrons (the diaphragm).
+  primitives: [
+    { shape: "ellipse", x: 25, y: 25, width: 50, height: 50 },
+    { shape: "line", x: 0, y: 0, width: 0, height: 0, points: [[40, 40], [50, 50], [40, 60]] },
+    { shape: "line", x: 0, y: 0, width: 0, height: 0, points: [[60, 40], [50, 50], [60, 60]] },
+  ],
+  ports: [
+    { id: "suction", x: 25, y: 50 },
+    { id: "discharge", x: 75, y: 50 },
+  ],
+};
+
+const BALL_VALVE: SymbolDefinition = {
+  id: "ball-valve",
+  label: "Ball valve",
+  kind: "equipment",
+  requiredAttributes: [{ key: "valveType", label: "Valve type", type: "string" }],
+  // Bow-tie body with the ball drawn as a centre circle.
+  primitives: [
+    { shape: "triangle", x: 0, y: 0, width: 0, height: 0, points: [[20, 35], [20, 65], [50, 50]] },
+    { shape: "triangle", x: 0, y: 0, width: 0, height: 0, points: [[80, 35], [80, 65], [50, 50]] },
+    { shape: "ellipse", x: 42, y: 42, width: 16, height: 16 },
+  ],
+  ports: [
+    { id: "left", x: 20, y: 50 },
+    { id: "right", x: 80, y: 50 },
+  ],
+};
+
+const EXPANSION_JOINT: SymbolDefinition = {
+  id: "expansion-joint",
+  label: "Expansion joint",
+  kind: "equipment",
+  requiredAttributes: [],
+  // Inline pipe run with a central bellows (zig-zag).
+  primitives: [
+    {
+      shape: "line",
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      points: [[10, 50], [30, 50], [36, 40], [44, 60], [52, 40], [60, 60], [66, 50], [90, 50]],
+    },
+  ],
+  ports: [
+    { id: "left", x: 10, y: 50 },
+    { id: "right", x: 90, y: 50 },
+  ],
+};
+
 const PROCESS_LINE: SymbolDefinition = {
   id: "process-line",
   label: "Process line",
@@ -251,7 +433,16 @@ export const SYMBOL_DEFINITIONS: Readonly<Record<SymbolId, SymbolDefinition>> = 
   pump: PUMP,
   "gate-valve": GATE_VALVE,
   "check-valve": CHECK_VALVE,
+  "ball-valve": BALL_VALVE,
   "instrument-bubble": INSTRUMENT_BUBBLE,
+  vessel: VESSEL,
+  centrifuge: CENTRIFUGE,
+  filter: FILTER,
+  evaporator: EVAPORATOR,
+  condenser: CONDENSER,
+  "heat-exchanger": HEAT_EXCHANGER,
+  "diaphragm-pump": DIAPHRAGM_PUMP,
+  "expansion-joint": EXPANSION_JOINT,
   "process-line": PROCESS_LINE,
   "signal-line": SIGNAL_LINE,
 };

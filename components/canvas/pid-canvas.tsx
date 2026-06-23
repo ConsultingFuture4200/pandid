@@ -38,7 +38,7 @@ import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/ty
 import { getSymbol, getRequiredAttributes, type SymbolId } from "@/lib/symbols";
 import { EquipmentPalette } from "./equipment-palette";
 import { symbolToSkeletons } from "./symbol-to-skeleton";
-import { modelToSceneSkeletons } from "./model-to-scene";
+import { modelToSceneSkeletons, nodeLabelSkeleton } from "./model-to-scene";
 import {
   addEdge,
   buildManualEdge,
@@ -79,13 +79,15 @@ interface PidCanvasProps {
 function nodeToSceneElements(
   node: PlacedNode,
 ): readonly OrderedExcalidrawElement[] {
-  return convertToExcalidrawElements(
-    symbolToSkeletons(getSymbol(node.symbolId), {
+  return convertToExcalidrawElements([
+    ...symbolToSkeletons(getSymbol(node.symbolId), {
       x: node.x,
       y: node.y,
       size: node.size,
     }),
-  );
+    // The equipment label (tag or symbol name) so a freshly placed symbol reads.
+    nodeLabelSkeleton(node, `${node.elementId}::label`),
+  ]);
 }
 
 /** Seed default attributes for a freshly placed symbol: its required-attribute

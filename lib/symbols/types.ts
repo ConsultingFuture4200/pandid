@@ -22,6 +22,16 @@ export type SymbolId =
   | "gate-valve"
   | "check-valve"
   | "instrument-bubble"
+  // Extraction-equipment set expansion (DEV-1200) — matches a real CADWORX P&ID.
+  | "vessel"
+  | "centrifuge"
+  | "filter"
+  | "evaporator"
+  | "condenser"
+  | "heat-exchanger"
+  | "diaphragm-pump"
+  | "ball-valve"
+  | "expansion-joint"
   | "process-line"
   | "signal-line";
 

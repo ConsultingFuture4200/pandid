@@ -23,8 +23,9 @@ test("palette lists equipment symbols from the library", async ({ page }) => {
 
   const palette = page.getByRole("complementary", { name: /equipment palette/i });
   await expect(palette).toBeVisible();
-  // The standard set has 11 symbols (PRD §6); each is a clickable palette entry.
-  await expect(palette.locator("button[data-symbol-id]")).toHaveCount(11);
+  // The extraction set has 20 symbols (PRD §6 + DEV-1200 expansion); each is a
+  // clickable palette entry.
+  await expect(palette.locator("button[data-symbol-id]")).toHaveCount(20);
   await expect(
     palette.locator('button[data-symbol-id="extraction-column"]'),
   ).toBeVisible();

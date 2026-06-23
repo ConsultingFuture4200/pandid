@@ -30,7 +30,12 @@ import type { ExcalidrawElementSkeleton } from "@excalidraw/excalidraw/data/tran
 
 import { getSymbol } from "@/lib/symbols";
 import { symbolToSkeletons } from "./symbol-to-skeleton";
-import { TECHNICAL_CONNECTOR_STYLE } from "./draw-style";
+import {
+  LABEL_FONT_FAMILY,
+  LABEL_FONT_SIZE,
+  LABEL_GLYPH_WIDTH_RATIO,
+  TECHNICAL_CONNECTOR_STYLE,
+} from "./draw-style";
 import type { PlacedNode, PlacementModel } from "./placement-model";
 
 /** Skeleton types an arrow can bind to (Excalidraw binds to generic shapes, not
@@ -57,6 +62,42 @@ export interface SceneSkeletons {
 /** Deterministic scene id for the i-th skeleton of a node. */
 function nodeSkeletonId(elementId: string, index: number): string {
   return `${elementId}::${index}`;
+}
+
+/** The label text drawn under a node: its tag when set, else the symbol name —
+ * so a freshly placed-but-untagged symbol still reads (e.g. "Centrifuge") and a
+ * tagged one shows its tag (e.g. "C-101"). */
+export function nodeLabelText(node: PlacedNode): string {
+  const tag = node.attributes.tag;
+  if (typeof tag === "string" && tag.trim().length > 0) {
+    return tag.trim();
+  }
+  return getSymbol(node.symbolId).label;
+}
+
+/**
+ * A clean centred text skeleton drawn just below a node's symbol, so a placed
+ * diagram reads like a real P&ID (DEV-1200). `id` ties it to the owning node for
+ * selection. Centred by estimate (text measuring needs a browser): anchor x is
+ * the box centre minus half the estimated label width.
+ */
+export function nodeLabelSkeleton(
+  node: PlacedNode,
+  id: string,
+): ExcalidrawElementSkeleton {
+  const text = nodeLabelText(node);
+  const estWidth = text.length * LABEL_FONT_SIZE * LABEL_GLYPH_WIDTH_RATIO;
+  return {
+    type: "text",
+    id,
+    text,
+    x: node.x + node.size / 2 - estWidth / 2,
+    y: node.y + node.size + 6,
+    fontSize: LABEL_FONT_SIZE,
+    fontFamily: LABEL_FONT_FAMILY,
+    textAlign: "center",
+    roughness: 0,
+  } as ExcalidrawElementSkeleton;
 }
 
 /**
@@ -93,6 +134,10 @@ export function modelToSceneSkeletons(model: PlacementModel): SceneSkeletons {
         bindAnchorByNode.set(node.elementId, id);
       }
     });
+    // Equipment label (tag or symbol name), tied to the node for selection.
+    const labelId = `${node.elementId}::label`;
+    skeletons.push(nodeLabelSkeleton(node, labelId));
+    sceneToOwner.set(labelId, node.elementId);
   }
 
   for (const edge of model.edges) {
