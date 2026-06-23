@@ -44,36 +44,105 @@ import type { PlacedNode, PlacementModel } from "./placement-model";
  * their edges fall back to unbound geometry. */
 const BINDABLE_SKELETON_TYPES = new Set(["rectangle", "ellipse", "diamond"]);
 
+/** A 2D point in scene space. */
+interface Point {
+  readonly x: number;
+  readonly y: number;
+}
+
 /** The scene-space centre of a placed node. */
-export function nodeCentre(node: PlacedNode): { x: number; y: number } {
+export function nodeCentre(node: PlacedNode): Point {
   return { x: node.x + node.size / 2, y: node.y + node.size / 2 };
 }
 
+/** Axis a pipe leaves a box along: horizontal (a left/right face) or vertical
+ * (a top/bottom face). */
+type RouteAxis = "h" | "v";
+
+/** Centre + half-extents of a node's visible BODY (the first rectangle/ellipse/
+ * diamond of its symbol, scaled to placement) — what connections attach to, so a
+ * pipe meets the drawn symbol rather than the looser placement box / empty
+ * margin. Falls back to the placement box for a symbol with no such primitive
+ * (e.g. a valve drawn only from triangles). */
+interface BodyBox {
+  readonly cx: number;
+  readonly cy: number;
+  readonly hx: number;
+  readonly hy: number;
+}
+function nodeBodyBox(node: PlacedNode): BodyBox {
+  const body = getSymbol(node.symbolId).primitives.find(
+    (p) =>
+      p.shape === "rectangle" ||
+      p.shape === "ellipse" ||
+      p.shape === "diamond",
+  );
+  if (body === undefined) {
+    const h = node.size / 2;
+    return { cx: node.x + h, cy: node.y + h, hx: h, hy: h };
+  }
+  const w = (body.width / 100) * node.size;
+  const ht = (body.height / 100) * node.size;
+  return {
+    cx: node.x + (body.x / 100) * node.size + w / 2,
+    cy: node.y + (body.y / 100) * node.size + ht / 2,
+    hx: w / 2,
+    hy: ht / 2,
+  };
+}
+
 /**
- * Where a line from the node's centre toward `toward` exits the node's box — so a
- * connection without a resolved PORT point still attaches at the symbol EDGE
- * facing the other element, never crossing into the middle of the box (DEV-1202
- * follow-up; the SD diagram's pre-fix ghost-port connections have no port
- * geometry). Treats the placement box as a square; precise port attachment comes
- * from stored port points when present.
+ * Exit point + axis on the node's body face nearest the `toward` direction: the
+ * MIDPOINT of the left/right (or top/bottom) face the pipe should leave from.
+ * Used when a connection has no stored port point, so the line leaves a clean,
+ * perpendicular point on the symbol edge instead of the box centre.
  */
-export function nodeEdgePoint(
+function faceExit(
   node: PlacedNode,
-  toward: { x: number; y: number },
-): { x: number; y: number } {
-  const cx = node.x + node.size / 2;
-  const cy = node.y + node.size / 2;
-  const half = node.size / 2;
+  toward: Point,
+): { readonly point: Point; readonly axis: RouteAxis } {
+  const { cx, cy, hx, hy } = nodeBodyBox(node);
   const dx = toward.x - cx;
   const dy = toward.y - cy;
-  if (dx === 0 && dy === 0) {
-    return { x: cx, y: cy };
+  // Normalise by the box half-extents so a tall/narrow body picks the right face.
+  if (Math.abs(dx) / hx >= Math.abs(dy) / hy) {
+    return { point: { x: dx >= 0 ? cx + hx : cx - hx, y: cy }, axis: "h" };
   }
-  // Smallest scale that brings the ray to a box face: the face it crosses first.
-  const tx = dx !== 0 ? half / Math.abs(dx) : Number.POSITIVE_INFINITY;
-  const ty = dy !== 0 ? half / Math.abs(dy) : Number.POSITIVE_INFINITY;
-  const t = Math.min(tx, ty);
-  return { x: cx + dx * t, y: cy + dy * t };
+  return { point: { x: cx, y: dy >= 0 ? cy + hy : cy - hy }, axis: "v" };
+}
+
+/** The axis a stored port point implies — which body face it sits nearest. */
+function axisOfPoint(node: PlacedNode, point: Point): RouteAxis {
+  const { cx, cy, hx, hy } = nodeBodyBox(node);
+  return Math.abs(point.x - cx) / hx >= Math.abs(point.y - cy) / hy ? "h" : "v";
+}
+
+/**
+ * Right-angle route between two endpoints given the axis each leaves along.
+ * Same axis on both ends → a Z with one perpendicular mid-run (split at the
+ * midpoint); opposite axes → a single L-bend. Returns the absolute points
+ * including the endpoints; collinear cases collapse to a straight line.
+ */
+function orthogonalRoute(
+  start: { x: number; y: number },
+  startAxis: RouteAxis,
+  end: { x: number; y: number },
+  endAxis: RouteAxis,
+): ReadonlyArray<{ x: number; y: number }> {
+  if (startAxis === "h" && endAxis === "h") {
+    const midX = (start.x + end.x) / 2;
+    return [start, { x: midX, y: start.y }, { x: midX, y: end.y }, end];
+  }
+  if (startAxis === "v" && endAxis === "v") {
+    const midY = (start.y + end.y) / 2;
+    return [start, { x: start.x, y: midY }, { x: end.x, y: midY }, end];
+  }
+  if (startAxis === "h") {
+    // h → v: bend at (end.x, start.y).
+    return [start, { x: end.x, y: start.y }, end];
+  }
+  // v → h: bend at (start.x, end.y).
+  return [start, { x: start.x, y: end.y }, end];
 }
 
 /** The skeletons to render plus a scene-element-id → owning element-id map. The
@@ -173,25 +242,6 @@ export function modelToSceneSkeletons(model: PlacementModel): SceneSkeletons {
     const target = edge.targetElementId
       ? nodeById.get(edge.targetElementId)
       : undefined;
-    // Endpoint geometry: the stored PORT point when known; otherwise the box EDGE
-    // facing the other endpoint (never the centre), so a port-less connection
-    // still attaches at the symbol boundary. Each endpoint aims at the other's
-    // stored point or centre.
-    const sourceCentre = source ? nodeCentre(source) : undefined;
-    const targetCentre = target ? nodeCentre(target) : undefined;
-    const towardStart = edge.end ?? targetCentre;
-    const towardEnd = edge.start ?? sourceCentre;
-    const start =
-      edge.start ??
-      (source && towardStart ? nodeEdgePoint(source, towardStart) : sourceCentre);
-    const end =
-      edge.end ??
-      (target && towardEnd ? nodeEdgePoint(target, towardEnd) : targetCentre);
-    if (start === undefined || end === undefined) {
-      // Orphan endpoint (no bound node, no stored point): nothing to draw.
-      continue;
-    }
-
     const startAnchor = edge.sourceElementId
       ? bindAnchorByNode.get(edge.sourceElementId)
       : undefined;
@@ -199,15 +249,41 @@ export function modelToSceneSkeletons(model: PlacementModel): SceneSkeletons {
       ? bindAnchorByNode.get(edge.targetElementId)
       : undefined;
 
+    // Endpoint geometry + ORTHOGONAL right-angle route (DEV-1204). With both nodes
+    // known, each endpoint leaves the midpoint of its body face toward the other
+    // (or its stored port point), and an L-/Z-bend joins them. Without both nodes
+    // (orphan/partial), fall back to a straight segment between known points.
+    let start: Point;
+    let routePoints: ReadonlyArray<Point>;
+    if (source !== undefined && target !== undefined) {
+      const s = edge.start
+        ? { point: edge.start, axis: axisOfPoint(source, edge.start) }
+        : faceExit(source, nodeCentre(target));
+      const e = edge.end
+        ? { point: edge.end, axis: axisOfPoint(target, edge.end) }
+        : faceExit(target, nodeCentre(source));
+      start = s.point;
+      routePoints = orthogonalRoute(s.point, s.axis, e.point, e.axis);
+    } else {
+      const s = edge.start ?? (source ? nodeCentre(source) : undefined);
+      const e = edge.end ?? (target ? nodeCentre(target) : undefined);
+      if (s === undefined || e === undefined) {
+        // Orphan endpoint (no bound node, no stored point): nothing to draw.
+        continue;
+      }
+      start = s;
+      routePoints = [s, e];
+    }
+    const points = routePoints.map(
+      (p) => [p.x - start.x, p.y - start.y] as [number, number],
+    );
+
     skeletons.push({
       type: "arrow",
       id: edge.elementId,
       x: start.x,
       y: start.y,
-      points: [
-        [0, 0],
-        [end.x - start.x, end.y - start.y],
-      ],
+      points,
       strokeStyle: edge.symbolId === "signal-line" ? "dashed" : "solid",
       ...TECHNICAL_CONNECTOR_STYLE,
       // Bind each endpoint to its node body so the arrow follows node drags
