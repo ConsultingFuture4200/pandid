@@ -39,7 +39,7 @@
  */
 import { z } from "zod";
 import type { TransportContext } from "@/lib/claude-transport";
-import { isSymbolId, type SymbolId } from "@/lib/symbols";
+import { getSymbol, isSymbolId, type SymbolId } from "@/lib/symbols";
 import { renderDiagramSvg } from "@/lib/diagram/render-svg";
 import type { DiagramEdit } from "@/lib/diagram/commit";
 import {
@@ -61,6 +61,7 @@ import {
   applyOp,
   editFromScene,
   effectiveSceneFromSnapshot,
+  type EditableScene,
 } from "./scene-edit";
 import {
   addEquipmentArgsSchema,
@@ -70,6 +71,7 @@ import {
   opToJson,
   parseProposeOp,
   setMetadataArgsSchema,
+  type ConnectArgs,
   type ProposeOp,
 } from "./propose-ops";
 
@@ -157,12 +159,18 @@ export class McpProposeTools {
     rawArgs: unknown,
   ): Promise<ProposeToolResult> {
     const parsed = this.parseArgs(connectArgsSchema, rawArgs);
+    const { active, scene } = await this.resolveEffectiveScene(context);
+    // Reject a binding to a port that doesn't exist on the resolved element
+    // BEFORE staging (mirrors add_equipment's unknown-type guard). A ghost port
+    // would otherwise stage and commit a connection with NO resolved geometry —
+    // it renders centre-to-centre instead of port-to-port (DEV-1202).
+    assertConnectPortsExist(scene, parsed);
     // Assign the connector id NOW (deterministic delta — see addEquipment).
     const args = {
       ...parsed,
       elementId: parsed.elementId ?? newOpElementId(parsed.signal ? "sig" : "line"),
     };
-    return this.stageOp(context, { kind: "connect", args });
+    return this.stageOpOnScene(context, active, scene, { kind: "connect", args });
   }
 
   /** `set_metadata` — merge attributes onto an existing element. */
@@ -208,11 +216,33 @@ export class McpProposeTools {
     context: TransportContext,
     op: ProposeOp,
   ): Promise<ProposeToolResult> {
+    const { active, scene } = await this.resolveEffectiveScene(context);
+    return this.stageOpOnScene(context, active, scene, op);
+  }
+
+  /**
+   * Resolve the EFFECTIVE editable scene: committed state + all PENDING ops in
+   * stage order, so a new op (e.g. `connect`) can reference elements added by
+   * still-pending proposals. Returned with the active diagram so a caller (the
+   * `connect` port pre-check) can inspect the scene and then stage on it without
+   * reading + replaying twice.
+   */
+  private async resolveEffectiveScene(
+    context: TransportContext,
+  ): Promise<{ active: ActiveDiagram; scene: EditableScene }> {
     const active = await this.loadActive(context);
-    // Base = EFFECTIVE state: committed + all PENDING ops in stage order, so a new
-    // op (e.g. `connect`) can reference elements added by still-pending proposals.
     const pendingOps = await this.pendingOps(context, active.diagram.id);
-    const scene = effectiveSceneFromSnapshot(active, pendingOps);
+    return { active, scene: effectiveSceneFromSnapshot(active, pendingOps) };
+  }
+
+  /** Stage one op against an already-resolved effective scene (see {@link
+   * resolveEffectiveScene}). */
+  private async stageOpOnScene(
+    context: TransportContext,
+    active: ActiveDiagram,
+    scene: EditableScene,
+    op: ProposeOp,
+  ): Promise<ProposeToolResult> {
     // `applyOp` throws `McpProposeError` for an op naming a missing element (a
     // bad request, not an invalid diagram); that propagates to the caller.
     const next = applyOp(scene, op);
@@ -353,6 +383,40 @@ export class McpProposeTools {
  * a stage-time-fixed id, not one minted per `applyOp`). Prefix mirrors the kind. */
 function newOpElementId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
+}
+
+/**
+ * Refuse a `connect` whose named source/target port does not exist on the bound
+ * element's symbol (DEV-1202). Checked against the EFFECTIVE scene so a port on a
+ * still-pending element resolves. A missing element is NOT rejected here — the
+ * validator reports `endpoint-missing-element` for that — so this guard only
+ * fires for a real element bound to a ghost port. The error lists the valid
+ * ports so Claude can correct itself.
+ *
+ * Only the `connect` TOOL runs this (not the shared `applyOp` transform), so
+ * replaying already-staged ops / accepting older proposals is unaffected.
+ */
+function assertConnectPortsExist(scene: EditableScene, args: ConnectArgs): void {
+  const ends = [
+    { elementId: args.sourceElementId, port: args.sourcePort, side: "source" },
+    { elementId: args.targetElementId, port: args.targetPort, side: "target" },
+  ] as const;
+  for (const end of ends) {
+    const placement = scene.placements.find((p) => p.elementId === end.elementId);
+    if (placement === undefined) {
+      continue; // missing element → the validator reports it, not this guard.
+    }
+    const portIds = getSymbol(placement.symbolId).ports.map((p) => p.id);
+    if (!portIds.includes(end.port)) {
+      throw new McpProposeError(
+        "invalid-args",
+        `Port "${end.port}" does not exist on the ${end.side} element ` +
+          `"${end.elementId}" (${placement.symbolId}). Valid ports: ` +
+          `${portIds.join(", ")}. Call get_active_diagram to see each element's ` +
+          "ports, then retry.",
+      );
+    }
+  }
 }
 
 /** Sentinel version id for the read-side projection of a not-yet-committed edit.

@@ -305,6 +305,48 @@ describe("connect", () => {
       ),
     ).toBe(true);
   });
+
+  it("refuses a connect to a port the element does not expose, listing the valid ports (DEV-1202)", async () => {
+    // col-1 is an extraction-column (ports top/bottom/left/right). Binding to a
+    // ghost port like "outlet" would otherwise stage + commit a connection with
+    // no resolved geometry; the tool now rejects it before staging.
+    const h = await harness();
+    await expect(
+      h.tools.connect(context(h.diagramId), {
+        sourceElementId: "col-1",
+        sourcePort: "outlet", // does not exist on extraction-column
+        targetElementId: "tank-1",
+        targetPort: "top",
+        attributes: { service: "product" },
+      }),
+    ).rejects.toMatchObject({ name: "McpProposeError", code: "invalid-args" });
+    await expect(
+      h.tools.connect(context(h.diagramId), {
+        sourceElementId: "col-1",
+        sourcePort: "outlet",
+        targetElementId: "tank-1",
+        targetPort: "top",
+        attributes: { service: "product" },
+      }),
+    ).rejects.toThrow(/Valid ports: top, bottom, left, right/);
+    // Nothing staged by the rejected attempts.
+    expect(
+      await h.proposals.listPending({ accountId: ACCOUNT, diagramId: h.diagramId }),
+    ).toHaveLength(0);
+  });
+
+  it("still stages a connect that uses real ports (geometry resolves)", async () => {
+    const h = await harness();
+    const result = await h.tools.connect(context(h.diagramId), {
+      sourceElementId: "col-1",
+      sourcePort: "bottom",
+      targetElementId: "tank-1",
+      targetPort: "top",
+      lineId: "P-9",
+      attributes: { service: "product" },
+    });
+    expect(result.status).toBe("staged");
+  });
 });
 
 describe("set_metadata", () => {
