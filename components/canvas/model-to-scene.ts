@@ -59,18 +59,25 @@ export function nodeCentre(node: PlacedNode): Point {
  * (a top/bottom face). */
 type RouteAxis = "h" | "v";
 
-/** Centre + half-extents of a node's visible BODY (the first rectangle/ellipse/
- * diamond of its symbol, scaled to placement) — what connections attach to, so a
- * pipe meets the drawn symbol rather than the looser placement box / empty
- * margin. Falls back to the placement box for a symbol with no such primitive
- * (e.g. a valve drawn only from triangles). */
-interface BodyBox {
+/** Centre + half-extents of a box (a node's visible BODY, or a live scene element)
+ * — what connections attach to, so a pipe meets the drawn symbol rather than the
+ * looser placement box / empty margin. */
+export interface BodyBox {
   readonly cx: number;
   readonly cy: number;
   readonly hx: number;
   readonly hy: number;
 }
-function nodeBodyBox(node: PlacedNode): BodyBox {
+
+/** Centre point of a body box. */
+export function boxCentre(box: BodyBox): Point {
+  return { x: box.cx, y: box.cy };
+}
+
+/** The visible BODY box of a node: the first rectangle/ellipse/diamond of its
+ * symbol scaled to placement; falls back to the placement box for a symbol with
+ * no such primitive (e.g. a valve drawn only from triangles). */
+export function nodeBodyBox(node: PlacedNode): BodyBox {
   const body = getSymbol(node.symbolId).primitives.find(
     (p) =>
       p.shape === "rectangle" ||
@@ -98,10 +105,10 @@ function nodeBodyBox(node: PlacedNode): BodyBox {
  * perpendicular point on the symbol edge instead of the box centre.
  */
 function faceExit(
-  node: PlacedNode,
+  box: BodyBox,
   toward: Point,
 ): { readonly point: Point; readonly axis: RouteAxis } {
-  const { cx, cy, hx, hy } = nodeBodyBox(node);
+  const { cx, cy, hx, hy } = box;
   const dx = toward.x - cx;
   const dy = toward.y - cy;
   // Normalise by the box half-extents so a tall/narrow body picks the right face.
@@ -112,9 +119,29 @@ function faceExit(
 }
 
 /** The axis a stored port point implies — which body face it sits nearest. */
-function axisOfPoint(node: PlacedNode, point: Point): RouteAxis {
-  const { cx, cy, hx, hy } = nodeBodyBox(node);
+function axisOfPoint(box: BodyBox, point: Point): RouteAxis {
+  const { cx, cy, hx, hy } = box;
   return Math.abs(point.x - cx) / hx >= Math.abs(point.y - cy) / hy ? "h" : "v";
+}
+
+/**
+ * Right-angle route between two boxes (their body faces), as an arrow anchor +
+ * relative points. Each end leaves the midpoint of the face nearest the other
+ * box. Shared by the initial render and the on-move reflow (DEV-1204) so a
+ * connection routes identically however it is (re)drawn.
+ */
+export function routeOrthogonalBetween(
+  sourceBox: BodyBox,
+  targetBox: BodyBox,
+): { readonly x: number; readonly y: number; readonly points: [number, number][] } {
+  const s = faceExit(sourceBox, boxCentre(targetBox));
+  const e = faceExit(targetBox, boxCentre(sourceBox));
+  const route = orthogonalRoute(s.point, s.axis, e.point, e.axis);
+  return {
+    x: s.point.x,
+    y: s.point.y,
+    points: route.map((p) => [p.x - s.point.x, p.y - s.point.y] as [number, number]),
+  };
 }
 
 /**
@@ -257,11 +284,11 @@ export function modelToSceneSkeletons(model: PlacementModel): SceneSkeletons {
     let routePoints: ReadonlyArray<Point>;
     if (source !== undefined && target !== undefined) {
       const s = edge.start
-        ? { point: edge.start, axis: axisOfPoint(source, edge.start) }
-        : faceExit(source, nodeCentre(target));
+        ? { point: edge.start, axis: axisOfPoint(nodeBodyBox(source), edge.start) }
+        : faceExit(nodeBodyBox(source), nodeCentre(target));
       const e = edge.end
-        ? { point: edge.end, axis: axisOfPoint(target, edge.end) }
-        : faceExit(target, nodeCentre(source));
+        ? { point: edge.end, axis: axisOfPoint(nodeBodyBox(target), edge.end) }
+        : faceExit(nodeBodyBox(target), nodeCentre(source));
       start = s.point;
       routePoints = orthogonalRoute(s.point, s.axis, e.point, e.axis);
     } else {

@@ -38,7 +38,13 @@ import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/ty
 import { getSymbol, getRequiredAttributes, type SymbolId } from "@/lib/symbols";
 import { EquipmentPalette } from "./equipment-palette";
 import { symbolToSkeletons } from "./symbol-to-skeleton";
-import { modelToSceneSkeletons, nodeLabelSkeleton } from "./model-to-scene";
+import {
+  modelToSceneSkeletons,
+  nodeBodyBox,
+  nodeLabelSkeleton,
+  routeOrthogonalBetween,
+  type BodyBox,
+} from "./model-to-scene";
 import {
   addEdge,
   buildManualEdge,
@@ -133,6 +139,11 @@ export function PidCanvas({
   // Last reported selection, so onChange only fires onSelectionChange on a real
   // transition (Excalidraw's onChange fires on every interaction).
   const lastSelectionRef = useRef<string | null>(null);
+  // Last-seen body centre per node, so the connection reflow (DEV-1204) only
+  // re-routes when a node actually MOVED — and never loops on its own updateScene.
+  const lastNodeCentreRef = useRef<Map<string, { x: number; y: number }>>(
+    new Map(),
+  );
 
   // Manual-connect state (DEV-1194). When the human picks a connector from the
   // palette the canvas enters connect mode: the next two equipment clicks become
@@ -193,12 +204,101 @@ export function PidCanvas({
         }
       }
       sceneToNodeRef.current = new Map(sceneToOwner);
+      // Seed the reflow baseline from the rendered body centres so the first
+      // onChange doesn't see a phantom "move" and re-route needlessly.
+      lastNodeCentreRef.current = new Map(
+        model.nodes.map((n) => {
+          const box = nodeBodyBox(n);
+          return [n.elementId, { x: box.cx, y: box.cy }] as const;
+        }),
+      );
       api.updateScene({ elements });
       if (elements.length > 0) {
         api.scrollToContent(elements, { fitToContent: true });
       }
     };
     requestAnimationFrame(() => requestAnimationFrame(apply));
+  }, []);
+
+  // Re-route connections as right-angle piping whenever a node MOVES (DEV-1204):
+  // Excalidraw distorts a bound multi-point arrow on drag, so we recompute each
+  // connector's orthogonal path from the nodes' LIVE body boxes and write it back.
+  // Guarded on node-centre movement so it never loops on its own updateScene.
+  const reflowConnections = useCallback(() => {
+    const api = apiRef.current;
+    if (api === null) {
+      return;
+    }
+    const model = modelRef.current;
+    if (model.edges.length === 0) {
+      return;
+    }
+    const nodeIds = new Set(model.nodes.map((n) => n.elementId));
+    const elements = api.getSceneElements();
+    // Current body box per node = its first bindable shape on the live scene.
+    const bodyByNode = new Map<string, BodyBox>();
+    for (const el of elements) {
+      const owner = sceneToNodeRef.current.get(el.id);
+      if (owner === undefined || !nodeIds.has(owner) || bodyByNode.has(owner)) {
+        continue;
+      }
+      if (
+        el.type === "rectangle" ||
+        el.type === "ellipse" ||
+        el.type === "diamond"
+      ) {
+        bodyByNode.set(owner, {
+          cx: el.x + el.width / 2,
+          cy: el.y + el.height / 2,
+          hx: el.width / 2,
+          hy: el.height / 2,
+        });
+      }
+    }
+    let moved = false;
+    for (const [id, box] of bodyByNode) {
+      const last = lastNodeCentreRef.current.get(id);
+      if (
+        last === undefined ||
+        Math.abs(last.x - box.cx) > 0.5 ||
+        Math.abs(last.y - box.cy) > 0.5
+      ) {
+        moved = true;
+        break;
+      }
+    }
+    if (!moved) {
+      return;
+    }
+    const edgeById = new Map(model.edges.map((e) => [e.elementId, e] as const));
+    let changed = false;
+    const next = elements.map((el) => {
+      if (el.type !== "arrow") {
+        return el;
+      }
+      const edge = edgeById.get(el.id);
+      if (edge === undefined) {
+        return el;
+      }
+      const sBox = edge.sourceElementId
+        ? bodyByNode.get(edge.sourceElementId)
+        : undefined;
+      const tBox = edge.targetElementId
+        ? bodyByNode.get(edge.targetElementId)
+        : undefined;
+      if (sBox === undefined || tBox === undefined) {
+        return el;
+      }
+      changed = true;
+      const { x, y, points } = routeOrthogonalBetween(sBox, tBox);
+      return { ...el, x, y, points } as typeof el;
+    });
+    lastNodeCentreRef.current = new Map(
+      [...bodyByNode].map(([k, v]) => [k, { x: v.cx, y: v.cy }] as const),
+    );
+    if (changed) {
+      api.updateScene({ elements: next });
+    }
   }, []);
 
   // Resolve the canvas selection to a single owned node id, or null when nothing
@@ -286,6 +386,8 @@ export function PidCanvas({
         );
         return;
       }
+      // Keep connections orthogonal when a node is moved (DEV-1204).
+      reflowConnections();
       if (onSelectionChange === undefined) {
         return;
       }
@@ -298,6 +400,7 @@ export function PidCanvas({
     [
       handleConnectSelection,
       onSelectionChange,
+      reflowConnections,
       resolveSelectedNode,
       resolveSelectedNodeId,
     ],
