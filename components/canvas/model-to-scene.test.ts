@@ -85,13 +85,16 @@ describe("modelToSceneSkeletons — bound connections (DEV-1193)", () => {
     expect(ids.has(arrow.end!.id)).toBe(true);
   });
 
-  it("anchors the arrow at the source node centre with a delta to the target", () => {
+  it("attaches a port-less edge at the box EDGE facing the other node, not the centre", () => {
     const arrow = arrowFor(model(), "edge-1");
-    // No stored port points → endpoints fall back to node centres.
-    // COLUMN centre = (40+50, 40+50) = (90, 90); TANK centre = (290, 110).
-    expect(arrow.x).toBe(90);
+    // No stored port points → each endpoint clips to its box edge toward the
+    // other node's centre. COLUMN centre (90,90) → right edge toward TANK centre
+    // (290,110) is (140, 95); TANK centre (290,110) → left edge toward (90,90) is
+    // (240, 105). Never the centre (which would cross into the box middle).
+    expect(arrow.x).toBe(140);
+    expect(arrow.y).toBe(95);
     expect(arrow.points[0]).toEqual([0, 0]);
-    expect(arrow.points[1]).toEqual([290 - 90, 110 - 90]);
+    expect(arrow.points[1]).toEqual([240 - 140, 105 - 95]);
   });
 
   it("prefers stored resolved port points over node centres", () => {
@@ -135,8 +138,10 @@ describe("modelToSceneSkeletons — bound connections (DEV-1193)", () => {
     // Source binds (column has a rectangle body); target stays unbound.
     expect(arrow.start).toEqual({ id: "el-column::0" });
     expect(arrow.end).toBeUndefined();
-    // The edge still draws (geometry from node centres), just unbound at the valve.
-    expect(arrow.points[1]).toEqual([290 - 90, 110 - 90]);
+    // The edge still draws (clipped to each box edge), just unbound at the valve:
+    // column right edge (140,95) → valve left edge (240,105).
+    expect(arrow.x).toBe(140);
+    expect(arrow.points[1]).toEqual([240 - 140, 105 - 95]);
   });
 
   it("skips an orphan edge endpoint with no bound node and no stored point", () => {

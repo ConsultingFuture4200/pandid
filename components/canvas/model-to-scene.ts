@@ -44,10 +44,36 @@ import type { PlacedNode, PlacementModel } from "./placement-model";
  * their edges fall back to unbound geometry. */
 const BINDABLE_SKELETON_TYPES = new Set(["rectangle", "ellipse", "diamond"]);
 
-/** The scene-space centre of a placed node, used as a connection endpoint when
- * no resolved port point is stored. */
+/** The scene-space centre of a placed node. */
 export function nodeCentre(node: PlacedNode): { x: number; y: number } {
   return { x: node.x + node.size / 2, y: node.y + node.size / 2 };
+}
+
+/**
+ * Where a line from the node's centre toward `toward` exits the node's box — so a
+ * connection without a resolved PORT point still attaches at the symbol EDGE
+ * facing the other element, never crossing into the middle of the box (DEV-1202
+ * follow-up; the SD diagram's pre-fix ghost-port connections have no port
+ * geometry). Treats the placement box as a square; precise port attachment comes
+ * from stored port points when present.
+ */
+export function nodeEdgePoint(
+  node: PlacedNode,
+  toward: { x: number; y: number },
+): { x: number; y: number } {
+  const cx = node.x + node.size / 2;
+  const cy = node.y + node.size / 2;
+  const half = node.size / 2;
+  const dx = toward.x - cx;
+  const dy = toward.y - cy;
+  if (dx === 0 && dy === 0) {
+    return { x: cx, y: cy };
+  }
+  // Smallest scale that brings the ray to a box face: the face it crosses first.
+  const tx = dx !== 0 ? half / Math.abs(dx) : Number.POSITIVE_INFINITY;
+  const ty = dy !== 0 ? half / Math.abs(dy) : Number.POSITIVE_INFINITY;
+  const t = Math.min(tx, ty);
+  return { x: cx + dx * t, y: cy + dy * t };
 }
 
 /** The skeletons to render plus a scene-element-id → owning element-id map. The
@@ -147,8 +173,20 @@ export function modelToSceneSkeletons(model: PlacementModel): SceneSkeletons {
     const target = edge.targetElementId
       ? nodeById.get(edge.targetElementId)
       : undefined;
-    const start = edge.start ?? (source ? nodeCentre(source) : undefined);
-    const end = edge.end ?? (target ? nodeCentre(target) : undefined);
+    // Endpoint geometry: the stored PORT point when known; otherwise the box EDGE
+    // facing the other endpoint (never the centre), so a port-less connection
+    // still attaches at the symbol boundary. Each endpoint aims at the other's
+    // stored point or centre.
+    const sourceCentre = source ? nodeCentre(source) : undefined;
+    const targetCentre = target ? nodeCentre(target) : undefined;
+    const towardStart = edge.end ?? targetCentre;
+    const towardEnd = edge.start ?? sourceCentre;
+    const start =
+      edge.start ??
+      (source && towardStart ? nodeEdgePoint(source, towardStart) : sourceCentre);
+    const end =
+      edge.end ??
+      (target && towardEnd ? nodeEdgePoint(target, towardEnd) : targetCentre);
     if (start === undefined || end === undefined) {
       // Orphan endpoint (no bound node, no stored point): nothing to draw.
       continue;
