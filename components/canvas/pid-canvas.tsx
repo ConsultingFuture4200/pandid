@@ -90,6 +90,14 @@ function nodeToSceneElements(
   ]);
 }
 
+/** Set a bound arrow's binding `gap` to 0 so the line touches the symbol edge
+ * (Excalidraw defaults to a few-px inset). No-op when the endpoint is unbound. */
+function zeroBindingGap(binding: { gap: number } | null): void {
+  if (binding !== null) {
+    binding.gap = 0;
+  }
+}
+
 /** Seed default attributes for a freshly placed symbol: its required-attribute
  * keys blank (the human fills them before a valid save) plus an empty tag, so the
  * element exists in the model immediately and the validator can report exactly
@@ -175,6 +183,15 @@ export function PidCanvas({
       const elements = convertToExcalidrawElements([...skeletons], {
         regenerateIds: false,
       });
+      // Bound connectors otherwise stop a few px short of the symbol (Excalidraw
+      // insets a bound arrow by its binding `gap`); zero it so a pipe touches the
+      // equipment edge like a real P&ID.
+      for (const element of elements) {
+        if (element.type === "arrow") {
+          zeroBindingGap(element.startBinding);
+          zeroBindingGap(element.endBinding);
+        }
+      }
       sceneToNodeRef.current = new Map(sceneToOwner);
       api.updateScene({ elements });
       if (elements.length > 0) {
