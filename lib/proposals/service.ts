@@ -143,15 +143,18 @@ export class ProposalService {
    * committing the stored `edit`.
    *
    * The proposal is flipped to `accepted` FIRST (guarded to `pending`), so a
-   * second accept/reject can't race a commit. If the commit then fails — e.g. the
-   * canonical diagram drifted since staging and the edit no longer validates —
-   * the error propagates; the proposal is left non-pending (decided) and no
-   * version was written (the pipeline persists nothing on a blocked commit).
+   * second accept/reject can't race the commit. But the flip is COMPENSATED: if
+   * the commit then fails — e.g. the proposal references an endpoint a not-yet-
+   * accepted proposal would add, so it doesn't validate against current committed
+   * state — the proposal is returned to `pending` and the error re-thrown. This is
+   * what prevents the silent-data-loss bug where a proposal showed `accepted` but
+   * its change was never committed: a failed accept stays PENDING and retryable
+   * (e.g. accept the proposal it depends on first, then retry this one).
    *
    * @throws {ProposalError} `not_found` (absent / not owned), `not_pending`
    *   (already accepted or rejected).
    * @throws {CommitBlockedError} if re-validation fails on accept (re-thrown from
-   *   the pipeline) — nothing is committed.
+   *   the pipeline) — nothing is committed and the proposal is left pending.
    */
   async accept(input: {
     accountId: string;
@@ -159,15 +162,25 @@ export class ProposalService {
     proposalId: string;
   }): Promise<AcceptResult> {
     const decided = await this.decide({ ...input, status: "accepted" });
-    const edit = await this.resolveAcceptEdit(decided, input.accountId, input.diagramId);
-
-    const commit = await this.pipeline.commit({
-      accountId: input.accountId,
-      diagramId: input.diagramId,
-      edit,
-    });
-
-    return { proposal: decided, commit };
+    try {
+      const edit = await this.resolveAcceptEdit(
+        decided,
+        input.accountId,
+        input.diagramId,
+      );
+      const commit = await this.pipeline.commit({
+        accountId: input.accountId,
+        diagramId: input.diagramId,
+        edit,
+      });
+      return { proposal: decided, commit };
+    } catch (error) {
+      // The commit (or materialization) failed AFTER we claimed `accepted`. Undo
+      // the claim so the proposal is pending again — never leave it `accepted`
+      // with nothing committed. Then surface the original failure unchanged.
+      await this.repo.revertToPending(input);
+      throw error;
+    }
   }
 
   /**

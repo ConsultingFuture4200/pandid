@@ -83,11 +83,22 @@ export async function listPendingProposals(): Promise<{
     diagramId: active.id,
   });
 
-  const proposals = pending.map<PendingProposalView>((proposal) => ({
-    proposalId: proposal.id,
-    createdAt: proposal.createdAt,
-    diff: diffProposal(committed, readStagedChange(proposal.stagedChange)),
-  }));
+  // Present OLDEST-first (stage order). Proposals form a delta chain — a later
+  // `connect` depends on the equipment an earlier `add` introduced — and accept
+  // re-applies each op against CURRENT committed state. Accepting in stage order
+  // (top-to-bottom) commits dependencies before dependents; the reverse order
+  // (the repo's newest-first listing) makes the dependents fail re-validation.
+  const proposals = [...pending]
+    .sort((a, b) =>
+      a.createdAt === b.createdAt
+        ? a.id.localeCompare(b.id)
+        : a.createdAt.localeCompare(b.createdAt),
+    )
+    .map<PendingProposalView>((proposal) => ({
+      proposalId: proposal.id,
+      createdAt: proposal.createdAt,
+      diff: diffProposal(committed, readStagedChange(proposal.stagedChange)),
+    }));
 
   return { activeDiagramId: active.id, proposals };
 }
@@ -190,9 +201,15 @@ async function resolveDecisionContext(
  * to fix — CLAUDE.md). Re-throws anything unexpected. */
 function decisionErrorMessage(err: unknown): string {
   if (err instanceof CommitBlockedError) {
-    // The canonical diagram drifted since staging and the edit no longer
-    // validates; the proposal is now decided and nothing was committed.
-    return err.message;
+    // The proposal didn't validate against current committed state — commonly it
+    // references an element a still-pending proposal would add. Accept now leaves
+    // it PENDING (retryable), so guide the human to the usual fix: accept earlier
+    // proposals first, then retry this one.
+    return (
+      `${err.message} This proposal is still pending — if it connects to or ` +
+      "changes an element another pending proposal adds, accept that one first " +
+      "(proposals are listed in order), then accept this one again."
+    );
   }
   if (err instanceof ProposalError || err instanceof ScopingError) {
     return err.message;

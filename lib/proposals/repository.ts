@@ -45,6 +45,21 @@ export interface ProposalRepository {
     status: "accepted" | "rejected";
   }): Promise<Proposal | null>;
 
+  /**
+   * Return an `accepted` proposal to `pending`, scoped to its diagram + account.
+   * Used by `accept` to compensate when the commit fails AFTER the status was
+   * claimed: a proposal whose commit was blocked must NOT stay `accepted` with
+   * nothing committed (silent data loss) — it goes back to `pending` so it can be
+   * retried (e.g. after the proposal it depends on is accepted). Guarded to
+   * `accepted` so it never resurrects a `rejected` proposal. Returns the updated
+   * row, or null if it was absent / not owned / not `accepted`.
+   */
+  revertToPending(input: {
+    accountId: string;
+    diagramId: string;
+    proposalId: string;
+  }): Promise<Proposal | null>;
+
   /** List a diagram's pending proposals, newest first (for the canvas UI). */
   listPending(input: {
     accountId: string;

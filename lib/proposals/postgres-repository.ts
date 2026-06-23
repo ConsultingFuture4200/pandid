@@ -97,6 +97,30 @@ export class PostgresProposalRepository implements ProposalRepository {
     return rows[0] ? toProposal(rows[0]) : null;
   }
 
+  async revertToPending(input: {
+    accountId: string;
+    diagramId: string;
+    proposalId: string;
+  }): Promise<Proposal | null> {
+    // Guarded to `accepted` (the only status `accept` claims before committing),
+    // account/diagram-scoped, so it never resurrects a rejected proposal or one
+    // on another account's diagram.
+    const { rows } = await this.pool.query<ProposalRow>(
+      `UPDATE proposal p
+       SET status = 'pending'
+       FROM diagram d
+       WHERE p.id = $1
+         AND p.diagram_id = $2
+         AND d.id = p.diagram_id
+         AND d.account_id = $3
+         AND p.status = 'accepted'
+       RETURNING p.id, p.diagram_id, p.staged_change, p.validator_report,
+                 p.status, p.created_at`,
+      [input.proposalId, input.diagramId, input.accountId],
+    );
+    return rows[0] ? toProposal(rows[0]) : null;
+  }
+
   async listPending(input: {
     accountId: string;
     diagramId: string;

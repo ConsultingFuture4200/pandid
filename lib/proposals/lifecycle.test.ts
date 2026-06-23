@@ -190,6 +190,61 @@ describe("ProposalService lifecycle", () => {
     // Nothing committed.
     const versions = await diagramService.listVersions({ accountId: ACCOUNT, diagramId });
     expect(versions).toEqual([]);
+
+    // And — critically — the proposal is NOT left falsely `accepted` with nothing
+    // committed. A blocked accept compensates the status claim back to `pending`
+    // (no silent data loss); the change is recoverable, not gone.
+    const after = await proposals.get({ accountId: ACCOUNT, diagramId, proposalId: planted.id });
+    expect(after?.status).toBe("pending");
+  });
+
+  it("a blocked accept stays pending and can be retried once the blocker clears", async () => {
+    // Stage a valid proposal, then make its FIRST commit fail to model a dependency
+    // that isn't committed yet; the second commit (after the blocker clears)
+    // succeeds. The proposal must survive the first failure as `pending`.
+    const staged = await service.stage({ accountId: ACCOUNT, diagramId, edit: validEdit() });
+
+    let failNext = true;
+    const flaky = {
+      commit: (args: Parameters<DiagramCommitPipeline["commit"]>[0]) => {
+        if (failNext) {
+          failNext = false;
+          return Promise.reject(
+            new CommitBlockedError({
+              valid: false,
+              errors: [
+                {
+                  code: "endpoint-missing-element",
+                  elementId: "line-1",
+                  message: "endpoint not committed yet",
+                },
+              ],
+            }),
+          );
+        }
+        return pipeline.commit(args);
+      },
+    } as unknown as DiagramCommitPipeline;
+    const flakyService = new ProposalService(
+      proposals,
+      flaky,
+      createConnectivityValidator(),
+      diagramRepo,
+    );
+
+    // First accept fails — but leaves the proposal pending (compensated), not accepted.
+    await expect(
+      flakyService.accept({ accountId: ACCOUNT, diagramId, proposalId: staged.id }),
+    ).rejects.toBeInstanceOf(CommitBlockedError);
+    expect(
+      (await proposals.get({ accountId: ACCOUNT, diagramId, proposalId: staged.id }))?.status,
+    ).toBe("pending");
+
+    // Retry now succeeds and commits exactly one version.
+    const result = await flakyService.accept({ accountId: ACCOUNT, diagramId, proposalId: staged.id });
+    expect(result.proposal.status).toBe("accepted");
+    const versions = await diagramService.listVersions({ accountId: ACCOUNT, diagramId });
+    expect(versions).toHaveLength(1);
   });
 
   it("cannot accept a proposal twice (terminal-status guard)", async () => {

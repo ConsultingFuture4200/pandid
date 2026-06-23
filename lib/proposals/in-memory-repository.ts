@@ -92,6 +92,26 @@ export class InMemoryProposalRepository implements ProposalRepository {
     return clone(updated);
   }
 
+  async revertToPending(input: {
+    accountId: string;
+    diagramId: string;
+    proposalId: string;
+  }): Promise<Proposal | null> {
+    const proposal = this.proposals.get(input.proposalId);
+    if (
+      proposal === undefined ||
+      proposal.diagramId !== input.diagramId ||
+      !this.owns(input.accountId, input.diagramId) ||
+      proposal.status !== "accepted"
+    ) {
+      // Absent, not owned, or not in the claimed `accepted` state.
+      return null;
+    }
+    const updated: Proposal = { ...proposal, status: "pending" };
+    this.proposals.set(updated.id, updated);
+    return clone(updated);
+  }
+
   async listPending(input: {
     accountId: string;
     diagramId: string;
