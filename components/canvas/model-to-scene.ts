@@ -240,6 +240,9 @@ export function modelToSceneSkeletons(model: PlacementModel): SceneSkeletons {
   const bindAnchorByNode = new Map<string, string>();
 
   for (const node of model.nodes) {
+    // Group all of a node's shapes + its label so they move as ONE unit when the
+    // human drags the symbol (DEV-1206) — Excalidraw moves a whole group together.
+    const groupIds = [`grp-${node.elementId}`];
     const nodeSkeletons = symbolToSkeletons(getSymbol(node.symbolId), {
       x: node.x,
       y: node.y,
@@ -247,7 +250,7 @@ export function modelToSceneSkeletons(model: PlacementModel): SceneSkeletons {
     });
     nodeSkeletons.forEach((skeleton, index) => {
       const id = nodeSkeletonId(node.elementId, index);
-      skeletons.push({ ...skeleton, id } as ExcalidrawElementSkeleton);
+      skeletons.push({ ...skeleton, id, groupIds } as ExcalidrawElementSkeleton);
       sceneToOwner.set(id, node.elementId);
       if (
         !bindAnchorByNode.has(node.elementId) &&
@@ -256,9 +259,12 @@ export function modelToSceneSkeletons(model: PlacementModel): SceneSkeletons {
         bindAnchorByNode.set(node.elementId, id);
       }
     });
-    // Equipment label (tag or symbol name), tied to the node for selection.
+    // Equipment label (tag or symbol name), grouped + tied to the node.
     const labelId = `${node.elementId}::label`;
-    skeletons.push(nodeLabelSkeleton(node, labelId));
+    skeletons.push({
+      ...nodeLabelSkeleton(node, labelId),
+      groupIds,
+    } as ExcalidrawElementSkeleton);
     sceneToOwner.set(labelId, node.elementId);
   }
 

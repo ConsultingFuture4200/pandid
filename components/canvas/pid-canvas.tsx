@@ -144,6 +144,11 @@ export function PidCanvas({
   const lastNodeCentreRef = useRef<Map<string, { x: number; y: number }>>(
     new Map(),
   );
+  // Stable handle to onModelChange so the move-sync callback's deps stay empty.
+  const onModelChangeRef = useRef(onModelChange);
+  useEffect(() => {
+    onModelChangeRef.current = onModelChange;
+  }, [onModelChange]);
 
   // Manual-connect state (DEV-1194). When the human picks a connector from the
   // palette the canvas enters connect mode: the next two equipment clicks become
@@ -220,19 +225,18 @@ export function PidCanvas({
     requestAnimationFrame(() => requestAnimationFrame(apply));
   }, []);
 
-  // Re-route connections as right-angle piping whenever a node MOVES (DEV-1204):
-  // Excalidraw distorts a bound multi-point arrow on drag, so we recompute each
-  // connector's orthogonal path from the nodes' LIVE body boxes and write it back.
-  // Guarded on node-centre movement so it never loops on its own updateScene.
+  // When a node is dragged on the canvas: (1) persist its new position into the
+  // model so Save keeps it and a reload doesn't snap it back (DEV-1206), and
+  // (2) re-route its connections as right-angle piping (DEV-1204) — Excalidraw
+  // distorts a bound multi-point arrow on drag, so we recompute each connector's
+  // orthogonal path from the nodes' LIVE body boxes. Guarded on node-centre
+  // movement so it never loops on its own updateScene.
   const reflowConnections = useCallback(() => {
     const api = apiRef.current;
     if (api === null) {
       return;
     }
     const model = modelRef.current;
-    if (model.edges.length === 0) {
-      return;
-    }
     const nodeIds = new Set(model.nodes.map((n) => n.elementId));
     const elements = api.getSceneElements();
     // Current body box per node = its first bindable shape on the live scene.
@@ -270,8 +274,31 @@ export function PidCanvas({
     if (!moved) {
       return;
     }
+
+    // (1) Persist the position delta into the model so Save commits it (DEV-1206).
+    let modelChanged = false;
+    const movedNodes = model.nodes.map((n) => {
+      const box = bodyByNode.get(n.elementId);
+      const last = lastNodeCentreRef.current.get(n.elementId);
+      if (
+        box === undefined ||
+        last === undefined ||
+        (Math.abs(last.x - box.cx) <= 0.5 && Math.abs(last.y - box.cy) <= 0.5)
+      ) {
+        return n;
+      }
+      modelChanged = true;
+      return { ...n, x: n.x + (box.cx - last.x), y: n.y + (box.cy - last.y) };
+    });
+    if (modelChanged) {
+      const nextModel: PlacementModel = { ...model, nodes: movedNodes };
+      modelRef.current = nextModel;
+      onModelChangeRef.current(nextModel);
+    }
+
+    // (2) Re-route connections orthogonally from the new positions (DEV-1204).
     const edgeById = new Map(model.edges.map((e) => [e.elementId, e] as const));
-    let changed = false;
+    let arrowsChanged = false;
     const next = elements.map((el) => {
       if (el.type !== "arrow") {
         return el;
@@ -289,14 +316,14 @@ export function PidCanvas({
       if (sBox === undefined || tBox === undefined) {
         return el;
       }
-      changed = true;
+      arrowsChanged = true;
       const { x, y, points } = routeOrthogonalBetween(sBox, tBox);
       return { ...el, x, y, points } as typeof el;
     });
     lastNodeCentreRef.current = new Map(
       [...bodyByNode].map(([k, v]) => [k, { x: v.cx, y: v.cy }] as const),
     );
-    if (changed) {
+    if (arrowsChanged) {
       api.updateScene({ elements: next });
     }
   }, []);
