@@ -28,6 +28,7 @@ import type { DiagramEdit } from "@/lib/diagram/commit";
 import type { VersionSnapshot } from "@/lib/diagram";
 import { getSymbol, isSymbolId, type SymbolId } from "@/lib/symbols";
 import { pidSceneSchema } from "@/lib/mcp-tools/canonical-state";
+import { parseSheetMetadata, type SheetMetadata } from "@/lib/sheet/types";
 import type { JsonObject } from "@/lib/types";
 
 /** Connector symbol ids — placed elements of these types are edges, not nodes. */
@@ -74,6 +75,9 @@ export interface PlacementModel {
   readonly nodes: readonly PlacedNode[];
   readonly edges: readonly PlacedEdge[];
   readonly viewport: { readonly width: number; readonly height: number };
+  /** Drawing-sheet metadata (title block, revisions, notes) — DEV-1201. Optional
+   * so legacy models / inline test fixtures stay valid; absent → sheet defaults. */
+  readonly sheet?: SheetMetadata;
 }
 
 /** An empty model (a brand-new diagram with nothing placed yet). */
@@ -159,6 +163,9 @@ export function placementModelToScene(model: PlacementModel): JsonObject {
       })),
       viewport: model.viewport,
     },
+    // Drawing-sheet metadata persisted alongside the structural projection
+    // (version-immutable, like `pid`) so the title block / notes round-trip.
+    ...(model.sheet !== undefined ? { sheet: model.sheet } : {}),
   };
 }
 
@@ -216,9 +223,14 @@ export function snapshotToPlacementModel(
     ];
   });
 
+  const sceneSheet = (snapshot.version.excalidrawScene as { sheet?: unknown })
+    .sheet;
   return {
     nodes,
     edges,
     viewport: pid?.viewport ?? { ...EMPTY_PLACEMENT_MODEL.viewport },
+    ...(sceneSheet !== undefined
+      ? { sheet: parseSheetMetadata(sceneSheet) }
+      : {}),
   };
 }

@@ -146,6 +146,35 @@ describe("snapshotToPlacementModel round-trip", () => {
     });
   });
 
+  it("round-trips drawing-sheet metadata through the scene (DEV-1201)", () => {
+    const sheet = {
+      title: "Ethanol P&ID",
+      client: "John Z",
+      drawingNo: "CW-PID-03",
+      jobNo: "CW_111",
+      scale: "N.T.S",
+      sheet: "1 of 1",
+      drawnBy: "HRB",
+      checkedBy: "BHR",
+      approvedBy: "",
+      notes: ["ALL DIMENSIONS IN MM"],
+      revisions: [
+        { rev: "0", date: "2026-06-17", description: "INITIAL RELEASE", drawnBy: "HRB", checkedBy: "BHR" },
+      ],
+    };
+    const scene = placementModelToScene({ ...sampleModel(), sheet });
+    const reloaded = snapshotToPlacementModel({
+      version: {
+        id: "00000000-0000-0000-0000-000000000000",
+        diagramId: "00000000-0000-0000-0000-000000000001",
+        excalidrawScene: scene,
+        createdAt: "2026-06-20T00:00:00.000Z",
+      },
+      metadata: [],
+    });
+    expect(reloaded.sheet).toEqual(sheet);
+  });
+
   it("projects an empty/legacy scene to the empty model (not an error)", () => {
     const reloaded = snapshotToPlacementModel({
       version: {

@@ -7,8 +7,10 @@
 // only handles the deterministic, runtime-free parts.
 
 import { buildCanonicalState } from "@/lib/mcp-tools";
-import { renderDiagramSvg } from "@/lib/diagram/render-svg";
-import type { SymbolId } from "@/lib/symbols";
+import { renderDiagramSvg, diagramSvgInner } from "@/lib/diagram/render-svg";
+import { getSymbol, type SymbolId } from "@/lib/symbols";
+import { renderSheetSvg } from "@/lib/sheet/render-sheet";
+import { defaultSheetMetadata } from "@/lib/sheet/types";
 import type { ExportLineRow } from "@/lib/export/serializers";
 import { placementModelToEdit, type PlacementModel } from "./placement-model";
 
@@ -18,6 +20,30 @@ export interface DiagramExport {
   readonly lineRows: readonly ExportLineRow[];
   /** SVG of the diagram, matching the canvas projection (DEV-1157). */
   readonly svg: string;
+  /** SVG of the diagram framed in a full drawing sheet (DEV-1201). */
+  readonly sheetSvg: string;
+}
+
+/** Distinct symbol names used in the model, for the sheet legend (placement
+ * order, deduped). */
+function diagramLegend(model: PlacementModel): string[] {
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  for (const n of model.nodes) {
+    const label = getSymbol(n.symbolId).label;
+    if (!seen.has(label)) {
+      seen.add(label);
+      labels.push(label);
+    }
+  }
+  for (const e of model.edges) {
+    const label = getSymbol(e.symbolId).label;
+    if (!seen.has(label)) {
+      seen.add(label);
+      labels.push(label);
+    }
+  }
+  return labels;
 }
 
 /** A non-empty string attribute value, else null. */
@@ -57,5 +83,14 @@ export function buildDiagramExport(model: PlacementModel): DiagramExport {
     service: serviceByEdge.get(row.elementId) ?? null,
   }));
 
-  return { lineRows, svg: renderDiagramSvg(state.renderState) };
+  const { inner, width, height } = diagramSvgInner(state.renderState);
+  const sheetSvg = renderSheetSvg({
+    diagramInner: inner,
+    diagramWidth: width,
+    diagramHeight: height,
+    sheet: model.sheet ?? defaultSheetMetadata(),
+    legend: diagramLegend(model),
+  });
+
+  return { lineRows, svg: renderDiagramSvg(state.renderState), sheetSvg };
 }

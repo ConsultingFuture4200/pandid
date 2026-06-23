@@ -43,6 +43,8 @@ import {
   setNodeAttribute,
 } from "./attribute-fields";
 import type { PlacementModel } from "./placement-model";
+import type { SheetMetadata } from "@/lib/sheet/types";
+import { SheetPanel } from "./sheet-panel";
 import { buildDiagramExport } from "./diagram-export";
 import {
   lineListToCsv,
@@ -219,6 +221,21 @@ export function EditorShell({
     downloadText(`${exportSlug(diagramName)}.svg`, svg, "image/svg+xml");
   }, [diagramName]);
 
+  const handleExportSheet = useCallback(() => {
+    const { sheetSvg } = buildDiagramExport(pendingModelRef.current);
+    downloadText(`${exportSlug(diagramName)}-sheet.svg`, sheetSvg, "image/svg+xml");
+  }, [diagramName]);
+
+  // Edit the drawing-sheet metadata (DEV-1201): fold it into the pending model so
+  // Save persists it with the version.
+  const handleSheetChange = useCallback(
+    (sheet: SheetMetadata) => {
+      setPendingModel({ ...pendingModelRef.current, sheet });
+      setDirty(true);
+    },
+    [setPendingModel],
+  );
+
   const handleExportExcalidraw = useCallback(async () => {
     const [{ convertToExcalidrawElements }, { modelToSceneSkeletons }] =
       await Promise.all([
@@ -366,8 +383,17 @@ export function EditorShell({
               >
                 .excalidraw
               </button>
+              <button
+                type="button"
+                data-testid="export-sheet"
+                onClick={handleExportSheet}
+                className="col-span-2 rounded border border-gray-300 px-2 py-1.5 hover:bg-gray-100"
+              >
+                Drawing sheet (SVG)
+              </button>
             </div>
           </section>
+          <SheetPanel sheet={pendingModel.sheet} onChange={handleSheetChange} />
         </aside>
       </div>
     </div>

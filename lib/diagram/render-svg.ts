@@ -214,14 +214,28 @@ function renderConnection(conn: RenderConnection): string {
  * Pure: no I/O, no Excalidraw runtime. Identical state → identical SVG.
  */
 export function renderDiagramSvg(state: DiagramRenderState): string {
-  const lines = state.connections.map(renderConnection);
-  const bodies = state.equipment.flatMap(renderEquipment);
-  const body = [...lines, ...bodies].join("\n  ");
-  const { width, height } = state.viewport;
+  const { inner, width, height } = diagramSvgInner(state);
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${fmt(width)} ${fmt(height)}" data-diagram="canonical">`,
-    `  ${body}`,
+    `  ${inner}`,
     `</svg>`,
     "",
   ].join("\n");
+}
+
+/** The diagram's inner SVG markup (connectors + equipment, no `<svg>` wrapper)
+ * plus its viewport — so a drawing-sheet renderer (DEV-1201) can embed the
+ * diagram inside a framed sheet without re-deriving geometry. */
+export function diagramSvgInner(state: DiagramRenderState): {
+  readonly inner: string;
+  readonly width: number;
+  readonly height: number;
+} {
+  const lines = state.connections.map(renderConnection);
+  const bodies = state.equipment.flatMap(renderEquipment);
+  return {
+    inner: [...lines, ...bodies].join("\n  "),
+    width: state.viewport.width,
+    height: state.viewport.height,
+  };
 }
