@@ -43,6 +43,12 @@ import {
   setNodeAttribute,
 } from "./attribute-fields";
 import type { PlacementModel } from "./placement-model";
+import { buildDiagramExport } from "./diagram-export";
+import {
+  lineListToCsv,
+  lineListToJson,
+  toExcalidrawFile,
+} from "@/lib/export/serializers";
 import { usePendingProposals } from "./use-pending-proposals";
 
 const PidCanvas = dynamic(
@@ -62,6 +68,29 @@ interface EditorShellProps {
   readonly diagramName: string;
   /** The committed model loaded by the server on first render. */
   readonly initialModel: PlacementModel;
+}
+
+/** Trigger a browser download of text content (DEV-1156 / DEV-1157 exports). */
+function downloadText(filename: string, content: string, mime: string): void {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** Filesystem-safe slug for the diagram name used in export filenames. */
+function exportSlug(name: string): string {
+  return (
+    name
+      .trim()
+      .replace(/[^\w.-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "diagram"
+  );
 }
 
 export function EditorShell({
@@ -161,6 +190,52 @@ export function EditorShell({
     await Promise.all([refreshFromCanonical(), refreshProposals()]);
   }, [refreshFromCanonical, refreshProposals]);
 
+  // Export the current (in-progress) diagram. Line list + SVG derive from the same
+  // canonical projection as the read tools (DEV-1156/1157); the .excalidraw export
+  // needs the Excalidraw runtime, dynamically imported on click to avoid SSR.
+  const handleExportLineList = useCallback(
+    (format: "csv" | "json") => {
+      const { lineRows } = buildDiagramExport(pendingModelRef.current);
+      const base = exportSlug(diagramName);
+      if (format === "csv") {
+        downloadText(
+          `${base}-line-list.csv`,
+          lineListToCsv(lineRows),
+          "text/csv;charset=utf-8",
+        );
+      } else {
+        downloadText(
+          `${base}-line-list.json`,
+          lineListToJson(lineRows),
+          "application/json",
+        );
+      }
+    },
+    [diagramName],
+  );
+
+  const handleExportSvg = useCallback(() => {
+    const { svg } = buildDiagramExport(pendingModelRef.current);
+    downloadText(`${exportSlug(diagramName)}.svg`, svg, "image/svg+xml");
+  }, [diagramName]);
+
+  const handleExportExcalidraw = useCallback(async () => {
+    const [{ convertToExcalidrawElements }, { modelToSceneSkeletons }] =
+      await Promise.all([
+        import("@excalidraw/excalidraw"),
+        import("./model-to-scene"),
+      ]);
+    const { skeletons } = modelToSceneSkeletons(pendingModelRef.current);
+    const elements = convertToExcalidrawElements([...skeletons], {
+      regenerateIds: false,
+    });
+    downloadText(
+      `${exportSlug(diagramName)}.excalidraw`,
+      toExcalidrawFile(elements),
+      "application/json",
+    );
+  }, [diagramName]);
+
   // Resolve the selection against the in-progress model as a node OR an edge, so
   // the attribute panel always edits the latest pending attributes (and hides on
   // empty space). A node takes precedence (ids are distinct, but be explicit).
@@ -251,6 +326,48 @@ export function EditorShell({
             proposals={proposals}
             onDecided={afterDecision}
           />
+          <section
+            aria-label="Export"
+            className="flex flex-col gap-2 border-t p-3"
+          >
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Export
+            </h2>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <button
+                type="button"
+                data-testid="export-line-csv"
+                onClick={() => handleExportLineList("csv")}
+                className="rounded border border-gray-300 px-2 py-1.5 hover:bg-gray-100"
+              >
+                Line list (CSV)
+              </button>
+              <button
+                type="button"
+                data-testid="export-line-json"
+                onClick={() => handleExportLineList("json")}
+                className="rounded border border-gray-300 px-2 py-1.5 hover:bg-gray-100"
+              >
+                Line list (JSON)
+              </button>
+              <button
+                type="button"
+                data-testid="export-svg"
+                onClick={handleExportSvg}
+                className="rounded border border-gray-300 px-2 py-1.5 hover:bg-gray-100"
+              >
+                Diagram (SVG)
+              </button>
+              <button
+                type="button"
+                data-testid="export-excalidraw"
+                onClick={() => void handleExportExcalidraw()}
+                className="rounded border border-gray-300 px-2 py-1.5 hover:bg-gray-100"
+              >
+                .excalidraw
+              </button>
+            </div>
+          </section>
         </aside>
       </div>
     </div>
