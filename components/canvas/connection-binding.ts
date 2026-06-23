@@ -31,6 +31,7 @@ import {
   DEFAULT_PLACEMENT_SIZE,
   type PlacementOptions,
 } from "./symbol-to-skeleton";
+import { TECHNICAL_CONNECTOR_STYLE } from "./draw-style";
 
 /** Symbol-library local box edge length; ports are authored in 0..100. */
 const LOCAL_BOX = 100;
@@ -143,5 +144,6 @@ export function buildBoundConnection(
     start: { id: source.element.elementId },
     end: { id: target.element.elementId },
     strokeStyle: dashed ? "dashed" : "solid",
+    ...TECHNICAL_CONNECTOR_STYLE,
   } as ExcalidrawElementSkeleton;
 }

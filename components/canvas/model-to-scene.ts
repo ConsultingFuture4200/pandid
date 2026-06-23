@@ -30,6 +30,7 @@ import type { ExcalidrawElementSkeleton } from "@excalidraw/excalidraw/data/tran
 
 import { getSymbol } from "@/lib/symbols";
 import { symbolToSkeletons } from "./symbol-to-skeleton";
+import { TECHNICAL_CONNECTOR_STYLE } from "./draw-style";
 import type { PlacedNode, PlacementModel } from "./placement-model";
 
 /** Skeleton types an arrow can bind to (Excalidraw binds to generic shapes, not
@@ -125,6 +126,7 @@ export function modelToSceneSkeletons(model: PlacementModel): SceneSkeletons {
         [end.x - start.x, end.y - start.y],
       ],
       strokeStyle: edge.symbolId === "signal-line" ? "dashed" : "solid",
+      ...TECHNICAL_CONNECTOR_STYLE,
       // Bind each endpoint to its node body so the arrow follows node drags
       // (DEV-1193). Omit when the endpoint has no bindable body — never emit a
       // half-bound arrow.

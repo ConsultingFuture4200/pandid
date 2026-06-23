@@ -14,6 +14,7 @@
 
 import type { ExcalidrawElementSkeleton } from "@excalidraw/excalidraw/data/transform";
 import type { SymbolDefinition, SymbolPrimitive } from "@/lib/symbols";
+import { TECHNICAL_SHAPE_STYLE } from "./draw-style";
 
 /** Symbol-library local box edge length; every primitive is authored in 0..100. */
 const LOCAL_BOX = 100;
@@ -75,6 +76,7 @@ function primitiveToSkeleton(
       y: ay,
       points: rel,
       strokeStyle,
+      ...TECHNICAL_SHAPE_STYLE,
     };
   }
 
@@ -85,6 +87,7 @@ function primitiveToSkeleton(
     width: (p.width / LOCAL_BOX) * size,
     height: (p.height / LOCAL_BOX) * size,
     strokeStyle,
+    ...TECHNICAL_SHAPE_STYLE,
   };
 }
 
