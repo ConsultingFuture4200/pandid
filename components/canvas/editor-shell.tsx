@@ -45,6 +45,7 @@ import {
 import type { PlacementModel } from "./placement-model";
 import type { SheetMetadata } from "@/lib/sheet/types";
 import { SheetPanel } from "./sheet-panel";
+import { VersionsPanel } from "./versions-panel";
 import { buildDiagramExport } from "./diagram-export";
 import {
   lineListToCsv,
@@ -117,6 +118,9 @@ export function EditorShell({
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<CommitEditResult | null>(null);
+  // Bumped whenever a new version is created (save / accept / restore) so the
+  // Versions panel re-fetches its history (DEV-1159).
+  const [versionsRefresh, setVersionsRefresh] = useState(0);
 
   // Set the in-progress model in both the ref (Save reads it) and state (panel
   // re-renders from it) so the two never drift.
@@ -186,6 +190,7 @@ export function EditorShell({
       setSaveResult(result);
       if (result.status === "ok") {
         await refreshFromCanonical();
+        setVersionsRefresh((n) => n + 1);
       }
     } finally {
       setSaving(false);
@@ -196,7 +201,15 @@ export function EditorShell({
   // list changed (reject); refresh both the canvas and the poll immediately.
   const afterDecision = useCallback(async () => {
     await Promise.all([refreshFromCanonical(), refreshProposals()]);
+    setVersionsRefresh((n) => n + 1);
   }, [refreshFromCanonical, refreshProposals]);
+
+  // A restore re-saved a prior version as the new current one — reload the canvas
+  // from canonical state and refresh the version list (DEV-1159).
+  const handleRestored = useCallback(() => {
+    void refreshFromCanonical();
+    setVersionsRefresh((n) => n + 1);
+  }, [refreshFromCanonical]);
 
   // Realtime: on a server "changed" ping, re-pull canonical state + proposals
   // immediately (DEV-1192). No-op when realtime isn't configured (poll covers it).
@@ -405,6 +418,10 @@ export function EditorShell({
               </button>
             </div>
           </section>
+          <VersionsPanel
+            refreshSignal={versionsRefresh}
+            onRestored={handleRestored}
+          />
           <SheetPanel sheet={pendingModel.sheet} onChange={handleSheetChange} />
         </aside>
       </div>
