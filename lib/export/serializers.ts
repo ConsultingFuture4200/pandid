@@ -5,7 +5,7 @@
 // derived elsewhere (the `LineListRow[]` from the canonical-state projection, the
 // Excalidraw element list from the canvas); these functions only format it.
 
-import type { LineListRow } from "@/lib/mcp-tools";
+import type { LineListRow } from "@/lib/mcp-tools/canonical-state";
 
 /** Columns of the exported line list, in order (FR-15). */
 const LINE_LIST_COLUMNS = [

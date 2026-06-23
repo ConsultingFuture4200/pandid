@@ -6,7 +6,9 @@
 // Excalidraw runtime and is built in the UI via a dynamic import; this module
 // only handles the deterministic, runtime-free parts.
 
-import { buildCanonicalState } from "@/lib/mcp-tools";
+// Import the pure projection from its leaf module (NOT the mcp-tools barrel,
+// which transitively pulls the Postgres pool into the client bundle).
+import { buildCanonicalState } from "@/lib/mcp-tools/canonical-state";
 import { renderDiagramSvg, diagramSvgInner } from "@/lib/diagram/render-svg";
 import { getSymbol, type SymbolId } from "@/lib/symbols";
 import { renderSheetSvg } from "@/lib/sheet/render-sheet";
