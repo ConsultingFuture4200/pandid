@@ -32,6 +32,7 @@ import { createMaterializeEdit } from "@/lib/mcp-tools/propose-index";
 import { getScopingService, ScopingError } from "@/lib/scoping";
 import { ProposalError } from "@/lib/proposals";
 import { CommitBlockedError } from "@/lib/diagram/commit";
+import { publishDiagramChange } from "@/lib/realtime/publish";
 import type { JsonObject } from "@/lib/types";
 import {
   diffProposal,
@@ -131,6 +132,9 @@ export async function acceptProposalAction(
     return { error: decisionErrorMessage(err) };
   }
 
+  // Push a realtime ping so the editor refreshes immediately (DEV-1192); the poll
+  // is the fallback when realtime isn't configured.
+  await publishDiagramChange(ctx.diagramId);
   revalidatePath("/editor");
   return { accepted: true };
 }
@@ -158,6 +162,7 @@ export async function rejectProposalAction(
     return { error: decisionErrorMessage(err) };
   }
 
+  await publishDiagramChange(ctx.diagramId);
   revalidatePath("/editor");
   return { rejected: true };
 }

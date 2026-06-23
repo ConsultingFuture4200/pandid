@@ -41,6 +41,7 @@ import { z } from "zod";
 import type { TransportContext } from "@/lib/claude-transport";
 import { getSymbol, isSymbolId, type SymbolId } from "@/lib/symbols";
 import { renderDiagramSvg } from "@/lib/diagram/render-svg";
+import { publishDiagramChange } from "@/lib/realtime/publish";
 import type { DiagramEdit } from "@/lib/diagram/commit";
 import {
   ProposalError,
@@ -264,6 +265,10 @@ export class McpProposeTools {
     } catch (error) {
       return this.mapStageError(error);
     }
+
+    // Push a realtime ping so the human's open editor surfaces the new proposal
+    // immediately instead of waiting for the next poll (DEV-1192). Best-effort.
+    void publishDiagramChange(active.diagram.id);
 
     // Project the edit's scene back to structured state + SVG for FR-9. This is
     // the same read-side projection the read tools use, so what Claude sees here

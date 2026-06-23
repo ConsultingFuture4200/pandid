@@ -52,6 +52,8 @@ import {
   toExcalidrawFile,
 } from "@/lib/export/serializers";
 import { usePendingProposals } from "./use-pending-proposals";
+import { useDiagramChannel } from "@/lib/realtime/use-diagram-channel";
+import { isRealtimeConfigured } from "@/lib/realtime/config";
 
 const PidCanvas = dynamic(
   () => import("./pid-canvas").then((m) => m.PidCanvas),
@@ -123,8 +125,12 @@ export function EditorShell({
     setPendingModelState(model);
   }, []);
 
-  const { proposals, refresh: refreshProposals } =
-    usePendingProposals(listPendingProposals);
+  // Poll fast when realtime isn't configured; when it is, realtime pushes drive
+  // updates and the poll is just a slow safety net (DEV-1192).
+  const { proposals, refresh: refreshProposals } = usePendingProposals(
+    listPendingProposals,
+    isRealtimeConfigured() ? { intervalMs: 20000 } : undefined,
+  );
 
   // Re-load the latest committed model from canonical state and re-seed the
   // canvas + the pending edit from it. Called after a save or a decision.
@@ -191,6 +197,12 @@ export function EditorShell({
   const afterDecision = useCallback(async () => {
     await Promise.all([refreshFromCanonical(), refreshProposals()]);
   }, [refreshFromCanonical, refreshProposals]);
+
+  // Realtime: on a server "changed" ping, re-pull canonical state + proposals
+  // immediately (DEV-1192). No-op when realtime isn't configured (poll covers it).
+  useDiagramChannel(diagramId, () => {
+    void afterDecision();
+  });
 
   // Export the current (in-progress) diagram. Line list + SVG derive from the same
   // canonical projection as the read tools (DEV-1156/1157); the .excalidraw export

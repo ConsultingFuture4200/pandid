@@ -31,6 +31,7 @@
  */
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth/current-user";
+import { publishDiagramChange } from "@/lib/realtime/publish";
 import { getDiagramService, DiagramError } from "@/lib/diagram";
 import {
   getCommitPipeline,
@@ -145,6 +146,7 @@ export async function commitDiagramEdit(
       edit: placementModelToEdit(model),
     });
     // The new committed version is canonical; the editor re-reads from it.
+    await publishDiagramChange(active.id);
     revalidatePath("/editor");
     return { status: "ok", versionId: snapshot.version.id };
   } catch (err) {
