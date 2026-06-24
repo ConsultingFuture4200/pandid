@@ -256,7 +256,18 @@ export function buildCanonicalState(snapshot: VersionSnapshot): CanonicalState {
     }),
     connections: connections.flatMap((c) =>
       c.start !== undefined && c.end !== undefined
-        ? [{ elementId: c.elementId, start: c.start, end: c.end, dashed: c.signal }]
+        ? [
+            {
+              elementId: c.elementId,
+              start: c.start,
+              end: c.end,
+              dashed: c.signal,
+              // Carry the endpoints so the renderer can route orthogonally against
+              // the joined equipment's body faces (matching the canvas).
+              sourceElementId: c.sourceElementId ?? undefined,
+              targetElementId: c.targetElementId ?? undefined,
+            },
+          ]
         : [],
     ),
     viewport,

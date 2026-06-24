@@ -33,6 +33,11 @@ import {
   type SymbolId,
   type SymbolPrimitive,
 } from "@/lib/symbols";
+import {
+  bodyBoxFromPlacement,
+  routeConnectionPoints,
+  type BodyBox,
+} from "./orthogonal-route";
 
 /** Symbol-library local box edge length; every primitive is authored in 0..100. */
 const LOCAL_BOX = 100;
@@ -74,6 +79,12 @@ export interface RenderConnection {
   readonly end: { readonly x: number; readonly y: number };
   /** Whether this is a signal line (dashed). Defaults to false (solid process). */
   readonly dashed?: boolean;
+  /** Source equipment element id. When both ends resolve to placed equipment, the
+   * edge is routed orthogonally against their body faces (matching the canvas);
+   * otherwise it falls back to a straight segment. */
+  readonly sourceElementId?: string;
+  /** Target equipment element id. See `sourceElementId`. */
+  readonly targetElementId?: string;
 }
 
 /** The drawable view of canonical diagram state this renderer consumes. */
@@ -196,10 +207,27 @@ function renderEquipment(eq: RenderEquipment): string[] {
   return body;
 }
 
-/** Render one connection edge as a straight port-to-port line. */
-function renderConnection(conn: RenderConnection): string {
+/**
+ * Render one connection edge. When both endpoints resolve to placed equipment,
+ * the edge is routed orthogonally (right angles) against their body faces — the
+ * SAME routing the live canvas uses (DEV-1204), so the exported sheet matches
+ * what the user drew. Unbound endpoints fall back to a straight segment.
+ */
+function renderConnection(
+  conn: RenderConnection,
+  boxById: ReadonlyMap<string, BodyBox>,
+): string {
   const attrs = strokeAttrs(conn.dashed === true);
-  const pts = `${fmt(conn.start.x)},${fmt(conn.start.y)} ${fmt(conn.end.x)},${fmt(conn.end.y)}`;
+  const sourceBox =
+    conn.sourceElementId !== undefined
+      ? boxById.get(conn.sourceElementId) ?? null
+      : null;
+  const targetBox =
+    conn.targetElementId !== undefined
+      ? boxById.get(conn.targetElementId) ?? null
+      : null;
+  const route = routeConnectionPoints(conn.start, sourceBox, conn.end, targetBox);
+  const pts = route.map((p) => `${fmt(p.x)},${fmt(p.y)}`).join(" ");
   return `<polyline points="${pts}" ${attrs} data-connection="${escapeText(conn.elementId)}"/>`;
 }
 
@@ -231,7 +259,20 @@ export function diagramSvgInner(state: DiagramRenderState): {
   readonly width: number;
   readonly height: number;
 } {
-  const lines = state.connections.map(renderConnection);
+  // Body box per placed equipment, so a connection can route against the faces of
+  // the symbols it joins — the same geometry the canvas routes against.
+  const boxById = new Map<string, BodyBox>(
+    state.equipment.map((eq) => [
+      eq.elementId,
+      bodyBoxFromPlacement(
+        eq.symbolId,
+        eq.x,
+        eq.y,
+        eq.size ?? DEFAULT_PLACEMENT_SIZE,
+      ),
+    ]),
+  );
+  const lines = state.connections.map((c) => renderConnection(c, boxById));
   const bodies = state.equipment.flatMap(renderEquipment);
   return {
     inner: [...lines, ...bodies].join("\n  "),

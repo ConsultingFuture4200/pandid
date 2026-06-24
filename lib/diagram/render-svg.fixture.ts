@@ -62,12 +62,16 @@ const CONNECTIONS: readonly RenderConnection[] = [
     start: portPoint(COLUMN, "bottom"),
     end: portPoint(TANK, "top"),
     dashed: false,
+    sourceElementId: COLUMN.elementId,
+    targetElementId: TANK.elementId,
   },
   {
     elementId: "sig-1",
     start: portPoint(INSTRUMENT, "process"),
     end: portPoint(TANK, "right"),
     dashed: true,
+    sourceElementId: INSTRUMENT.elementId,
+    targetElementId: TANK.elementId,
   },
 ];
 
