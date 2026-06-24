@@ -34,6 +34,7 @@ import type {
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import type { ExcalidrawElementSkeleton } from "@excalidraw/excalidraw/data/transform";
 
 import { getSymbol, getRequiredAttributes, type SymbolId } from "@/lib/symbols";
 import { EquipmentPalette } from "./equipment-palette";
@@ -85,7 +86,12 @@ interface PidCanvasProps {
 function nodeToSceneElements(
   node: PlacedNode,
 ): readonly OrderedExcalidrawElement[] {
-  return convertToExcalidrawElements([
+  // Group all of a node's shapes + its label so a freshly placed symbol moves as
+  // ONE unit when dragged (DEV-1206), matching the reload path in
+  // `modelToSceneSkeletons`. Without this, a multi-primitive symbol lands as
+  // loose, individually-selectable parts.
+  const groupIds = [`grp-${node.elementId}`];
+  const skeletons: ExcalidrawElementSkeleton[] = [
     ...symbolToSkeletons(getSymbol(node.symbolId), {
       x: node.x,
       y: node.y,
@@ -93,7 +99,13 @@ function nodeToSceneElements(
     }),
     // The equipment label (tag or symbol name) so a freshly placed symbol reads.
     nodeLabelSkeleton(node, `${node.elementId}::label`),
-  ]);
+  ];
+  return convertToExcalidrawElements(
+    skeletons.map(
+      (skeleton) =>
+        ({ ...skeleton, groupIds }) as ExcalidrawElementSkeleton,
+    ),
+  );
 }
 
 /** Set a bound arrow's binding `gap` to 0 so the line touches the symbol edge
