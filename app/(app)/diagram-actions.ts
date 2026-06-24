@@ -28,6 +28,8 @@ import {
   getScopingService,
   type ScopingService,
 } from "@/lib/scoping";
+import { getTemplate } from "@/lib/templates";
+import { placementModelToEdit } from "@/components/canvas/placement-model";
 import type { AuthenticatedUser } from "@/lib/auth/types";
 import type { JsonObject } from "@/lib/types";
 
@@ -100,6 +102,59 @@ export async function createDiagramWith(
 }
 
 /**
+ * Core create-from-template logic: look up the prebuilt template, build its
+ * model, and seed a new diagram's initial version from it — then make it active.
+ * Same create→save→activate path as {@link createDiagramWith}; only the seeded
+ * scene differs (the template's model instead of an empty scene). The template's
+ * model is serialized with the canonical `placementModelToEdit`, so the seeded
+ * version is the exact `{ scene, metadata }` a manual save produces. Seeding here
+ * (like the empty create) goes straight through `DiagramService.save` — the
+ * validator gates manual canvas saves, not the initial seed, so a template can
+ * carry attributes the user will fill in later.
+ */
+export async function createDiagramFromTemplateWith(
+  deps: CreateDiagramDeps,
+  templateId: string,
+): Promise<CreateDiagramFormState> {
+  const template = getTemplate(templateId);
+  if (template === null) {
+    return { error: "That template is not available." };
+  }
+
+  const { user, diagrams, scoping } = deps;
+  const edit = placementModelToEdit(template.buildModel());
+  try {
+    const diagram = await diagrams.create({
+      accountId: user.accountId,
+      name: template.diagramName,
+    });
+    await diagrams.save({
+      accountId: user.accountId,
+      diagramId: diagram.id,
+      save: {
+        excalidrawScene: edit.scene,
+        metadata: edit.elements.map((e) => ({
+          elementId: e.id,
+          equipmentType: e.equipmentType,
+          attributes: e.attributes,
+        })),
+      },
+    });
+    await scoping.setActiveDiagram({
+      accountId: user.accountId,
+      diagramId: diagram.id,
+    });
+  } catch (err) {
+    if (err instanceof DiagramError || err instanceof ScopingError) {
+      return { error: err.message };
+    }
+    throw err;
+  }
+
+  return {};
+}
+
+/**
  * Server action bound by the new-diagram form. Resolves the account from the
  * session and the canonical singleton services, then delegates to
  * {@link createDiagramWith} and revalidates `/diagrams`.
@@ -114,6 +169,30 @@ export async function createDiagramAction(
   const result = await createDiagramWith(
     { user, diagrams: getDiagramService(), scoping: getScopingService() },
     name,
+  );
+
+  if (result.error === undefined) {
+    revalidatePath("/diagrams");
+  }
+  return result;
+}
+
+/**
+ * Server action bound by the template gallery. Resolves the account from the
+ * session, instantiates the chosen template through
+ * {@link createDiagramFromTemplateWith}, and revalidates `/diagrams`. The
+ * template id is form data, but the account is always the session's.
+ */
+export async function createDiagramFromTemplateAction(
+  _prev: CreateDiagramFormState,
+  formData: FormData,
+): Promise<CreateDiagramFormState> {
+  const user = await requireUser();
+  const templateId = String(formData.get("templateId") ?? "");
+
+  const result = await createDiagramFromTemplateWith(
+    { user, diagrams: getDiagramService(), scoping: getScopingService() },
+    templateId,
   );
 
   if (result.error === undefined) {

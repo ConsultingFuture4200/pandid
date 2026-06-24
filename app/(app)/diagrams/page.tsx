@@ -10,13 +10,18 @@
  * actions (account never comes from the client), then renders the switcher.
  */
 import { requireUser } from "@/lib/auth/current-user";
-import { createDiagramAction } from "../diagram-actions";
+import { listTemplateSummaries } from "@/lib/templates";
+import {
+  createDiagramAction,
+  createDiagramFromTemplateAction,
+} from "../diagram-actions";
 import {
   listScopableDiagrams,
   setActiveDiagramAction,
 } from "../scoping-actions";
 import { DiagramSwitcher } from "./diagram-switcher";
 import { NewDiagramForm } from "./new-diagram-form";
+import { TemplateGallery } from "./template-gallery";
 
 export default async function DiagramsPage() {
   await requireUser();
@@ -41,6 +46,10 @@ export default async function DiagramsPage() {
           No diagrams yet — create one below. It becomes your active diagram.
         </p>
       )}
+      <TemplateGallery
+        templates={listTemplateSummaries()}
+        action={createDiagramFromTemplateAction}
+      />
       <NewDiagramForm action={createDiagramAction} />
     </main>
   );
