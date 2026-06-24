@@ -9,7 +9,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import { modelToSceneSkeletons } from "./model-to-scene";
+import {
+  modelToSceneSkeletons,
+  nodeBodyBox,
+  routeOrthogonalBetween,
+} from "./model-to-scene";
 import type { PlacedEdge, PlacedNode, PlacementModel } from "./placement-model";
 
 const COLUMN: PlacedNode = {
@@ -184,5 +188,42 @@ describe("modelToSceneSkeletons — bound connections (DEV-1193)", () => {
     expect(sceneToOwner.get("el-column::0")).toBe("el-column");
     expect(sceneToOwner.get("el-tank::0")).toBe("el-tank");
     expect(sceneToOwner.get("edge-1")).toBe("edge-1");
+  });
+});
+
+// A symbol with no bindable body (all lines/triangles) still has a routable box.
+// The on-canvas drag reflow (pid-canvas) relies on this fallback: when the OTHER
+// end of an edge is dragged, the connection to such a symbol must re-route from
+// the symbol's placement box rather than be dropped (the "line disappears" bug).
+describe("nodeBodyBox / routeOrthogonalBetween — non-bindable symbol fallback", () => {
+  const expansionJoint: PlacedNode = {
+    elementId: "el-exp",
+    symbolId: "expansion-joint", // primitives are a single line — no bindable body
+    x: 100,
+    y: 100,
+    size: 100,
+    attributes: {},
+  };
+
+  it("gives a non-bindable symbol a finite placement-box fallback", () => {
+    const box = nodeBodyBox(expansionJoint);
+    for (const v of [box.cx, box.cy, box.hx, box.hy]) {
+      expect(Number.isFinite(v)).toBe(true);
+    }
+    // Falls back to the full placement box (size 100, centred on the placement).
+    expect(box).toEqual({ cx: 150, cy: 150, hx: 50, hy: 50 });
+  });
+
+  it("routes orthogonally between a non-bindable box and a moved valve box", () => {
+    const movedValveBox = { cx: 320, cy: 40, hx: 8, hy: 8 };
+    const route = routeOrthogonalBetween(nodeBodyBox(expansionJoint), movedValveBox);
+    expect(Number.isFinite(route.x)).toBe(true);
+    expect(Number.isFinite(route.y)).toBe(true);
+    expect(route.points.length).toBeGreaterThanOrEqual(2);
+    for (const [px, py] of route.points) {
+      expect(Number.isFinite(px)).toBe(true);
+      expect(Number.isFinite(py)).toBe(true);
+    }
+    expectOrthogonal(route.points);
   });
 });

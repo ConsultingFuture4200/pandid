@@ -310,6 +310,27 @@ export function PidCanvas({
 
     // (2) Re-route connections orthogonally from the new positions (DEV-1204).
     const edgeById = new Map(model.edges.map((e) => [e.elementId, e] as const));
+    const modelNodeById = new Map(
+      model.nodes.map((node) => [node.elementId, node] as const),
+    );
+    // A node's box for routing: its LIVE scene body when the symbol has a bindable
+    // shape, else its model placement box. The fallback matters because a symbol
+    // drawn only from lines/triangles (expansion joint, gate/check valve) has no
+    // bindable body, so an edge touching it is HALF-bound — Excalidraw distorts it
+    // when the other end is dragged. Without the fallback this re-route skipped
+    // such edges, leaving the distorted (often collapsed → invisible) arrow in
+    // place; the model box lets us re-route it like any other connection.
+    const boxFor = (nodeId: string | null): BodyBox | undefined => {
+      if (nodeId === null) {
+        return undefined;
+      }
+      const live = bodyByNode.get(nodeId);
+      if (live !== undefined) {
+        return live;
+      }
+      const node = modelNodeById.get(nodeId);
+      return node === undefined ? undefined : nodeBodyBox(node);
+    };
     let arrowsChanged = false;
     const next = elements.map((el) => {
       if (el.type !== "arrow") {
@@ -319,12 +340,8 @@ export function PidCanvas({
       if (edge === undefined) {
         return el;
       }
-      const sBox = edge.sourceElementId
-        ? bodyByNode.get(edge.sourceElementId)
-        : undefined;
-      const tBox = edge.targetElementId
-        ? bodyByNode.get(edge.targetElementId)
-        : undefined;
+      const sBox = boxFor(edge.sourceElementId);
+      const tBox = boxFor(edge.targetElementId);
       if (sBox === undefined || tBox === undefined) {
         return el;
       }
