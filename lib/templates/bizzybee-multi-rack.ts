@@ -37,6 +37,8 @@ function multiRackSheet(): SheetMetadata {
     drawnBy: "",
     checkedBy: "",
     approvedBy: "",
+    logo: "BIZZYBEE",
+    projection: "third-angle",
     notes: [
       "ALL DIMENSIONS ARE IN MM UNLESS OTHERWISE SPECIFIED",
       "CLOSED-LOOP ETHYL (ETHANOL) SOLVENT EXTRACTION. SOLVENT RECOVERY BY ELECTRO-PASSIVE RECOVERY (EPR).",

@@ -55,6 +55,52 @@ function text(
   return `<text x="${x}" y="${y}" font-family="Helvetica, Arial, sans-serif" font-size="${size}" text-anchor="${anchor}"${weight} fill="${STROKE}">${esc(s)}</text>`;
 }
 
+function polygon(points: ReadonlyArray<readonly [number, number]>, fill = "none"): string {
+  const pts = points.map(([px, py]) => `${px},${py}`).join(" ");
+  return `<polygon points="${pts}" fill="${fill}" stroke="${STROKE}" stroke-width="1"/>`;
+}
+
+function circle(cx: number, cy: number, r: number, fill = "none"): string {
+  return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="${STROKE}" stroke-width="1"/>`;
+}
+
+/**
+ * The ISO projection-convention glyph: a truncated cone shown as a side view
+ * (trapezoid) beside its end view (two concentric circles). Third-angle (US)
+ * places the circles to the right of the cone; first-angle (Europe) to the left.
+ * Centred at (cx, cy).
+ */
+function renderProjectionSymbol(
+  cx: number,
+  cy: number,
+  angle: "first-angle" | "third-angle",
+): string {
+  const third = angle === "third-angle";
+  // Cone profile (trapezoid): wide end faces the circles.
+  const coneCx = third ? cx - 16 : cx + 16;
+  const wideX = third ? coneCx + 13 : coneCx - 13; // wide end toward the circles
+  const narrowX = third ? coneCx - 13 : coneCx + 13;
+  const cone = polygon([
+    [narrowX, cy - 6],
+    [narrowX, cy + 6],
+    [wideX, cy - 11],
+    [wideX, cy + 11],
+  ]);
+  const circCx = third ? cx + 18 : cx - 18;
+  return [cone, circle(circCx, cy, 11), circle(circCx, cy, 5)].join("\n  ");
+}
+
+/** A revision flag: a small up-pointing triangle with the rev id inside — the
+ * standard ISO marker. Drawn with its baseline at `y`, left edge at `x`. */
+function renderRevFlag(x: number, y: number, rev: string): string {
+  const tri = polygon([
+    [x + 8, y - 14],
+    [x, y - 1],
+    [x + 16, y - 1],
+  ]);
+  return [tri, text(x + 8, y - 3, rev, { size: 8, anchor: "middle" })].join("\n  ");
+}
+
 /** Border + A–F × 1–10 zone ticks just inside the inner frame. */
 function renderFrame(ix: number, iy: number, iw: number, ih: number): string {
   const parts: string[] = [
@@ -90,26 +136,43 @@ function renderFrame(ix: number, iy: number, iw: number, ih: number): string {
 /** Title block (bottom-right): two-column field grid + revision rows on top. */
 function renderTitleBlock(x: number, y: number, w: number, h: number, s: SheetMetadata): string {
   const parts: string[] = [rect(x, y, w, h)];
-  // Revision strip across the top (latest 2 revisions).
+
+  // Optional head band: company logo text (left) + ISO projection glyph (right),
+  // only when either is set so existing sheets are unchanged (DEV-1212).
+  const hasLogo = s.logo !== undefined && s.logo !== "";
+  const headH = hasLogo || s.projection !== undefined ? 30 : 0;
+  if (headH > 0) {
+    if (hasLogo) {
+      parts.push(text(x + 8, y + 20, s.logo ?? "", { size: 15, bold: true }));
+    }
+    if (s.projection !== undefined) {
+      parts.push(renderProjectionSymbol(x + w - 52, y + headH / 2, s.projection));
+    }
+    parts.push(line(x, y + headH, x + w, y + headH));
+  }
+
+  // Revision strip below the head band (latest 2 revisions), each flagged with
+  // the ISO revision triangle.
+  const revTop = y + headH;
   const revH = 18;
   const revs = s.revisions.slice(-2);
-  parts.push(line(x, y + revH * (revs.length + 1), x + w, y + revH * (revs.length + 1)));
-  parts.push(text(x + 4, y + 13, "REV", { size: 9, bold: true }));
-  parts.push(text(x + 46, y + 13, "DATE", { size: 9, bold: true }));
-  parts.push(text(x + 150, y + 13, "DESCRIPTION", { size: 9, bold: true }));
-  parts.push(text(x + w - 90, y + 13, "DRN", { size: 9, bold: true }));
-  parts.push(text(x + w - 44, y + 13, "CHK", { size: 9, bold: true }));
+  parts.push(line(x, revTop + revH * (revs.length + 1), x + w, revTop + revH * (revs.length + 1)));
+  parts.push(text(x + 26, revTop + 13, "REV", { size: 9, bold: true }));
+  parts.push(text(x + 70, revTop + 13, "DATE", { size: 9, bold: true }));
+  parts.push(text(x + 170, revTop + 13, "DESCRIPTION", { size: 9, bold: true }));
+  parts.push(text(x + w - 90, revTop + 13, "DRN", { size: 9, bold: true }));
+  parts.push(text(x + w - 44, revTop + 13, "CHK", { size: 9, bold: true }));
   revs.forEach((rev, i) => {
-    const ry = y + revH * (i + 1) + 13;
-    parts.push(text(x + 4, ry, rev.rev, { size: 9 }));
-    parts.push(text(x + 46, ry, rev.date, { size: 9 }));
-    parts.push(text(x + 150, ry, rev.description, { size: 9 }));
+    const ry = revTop + revH * (i + 1) + 13;
+    parts.push(renderRevFlag(x + 4, ry + 1, rev.rev));
+    parts.push(text(x + 70, ry, rev.date, { size: 9 }));
+    parts.push(text(x + 170, ry, rev.description, { size: 9 }));
     parts.push(text(x + w - 90, ry, rev.drawnBy, { size: 9 }));
     parts.push(text(x + w - 44, ry, rev.checkedBy, { size: 9 }));
   });
 
   // Field grid below the revision strip.
-  const top = y + revH * (revs.length + 1);
+  const top = revTop + revH * (revs.length + 1);
   const fieldH = (h - (top - y)) / 4;
   const field = (col: number, row: number, cols: number, label: string, value: string): string => {
     const cw = w / 2;

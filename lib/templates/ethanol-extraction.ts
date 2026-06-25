@@ -30,6 +30,8 @@ function ethanolSheet(): SheetMetadata {
     drawnBy: "HRB",
     checkedBy: "BHR",
     approvedBy: "BHR",
+    logo: "CADWORX",
+    projection: "third-angle",
     notes: [
       "ALL DIMENSIONS ARE IN MM UNLESS OTHERWISE SPECIFIED",
       "THIS DRAWING IS THE PRIVATE PROPERTY OF JOHN Z / CADWORX. UNAUTHORIZED DISCLOSURE TO ANY THIRD PARTY OR DUPLICATION NOT PERMITTED.",

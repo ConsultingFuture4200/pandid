@@ -33,6 +33,10 @@ export const sheetMetadataSchema = z.object({
   /** General notes (each rendered as a numbered line). */
   notes: z.array(z.string()),
   revisions: z.array(sheetRevisionSchema),
+  /** Company/brand text shown in the title block's logo cell (DEV-1212). */
+  logo: z.string().optional(),
+  /** Projection convention; renders the ISO first/third-angle glyph (DEV-1212). */
+  projection: z.enum(["first-angle", "third-angle"]).optional(),
 });
 export type SheetMetadata = z.infer<typeof sheetMetadataSchema>;
 
