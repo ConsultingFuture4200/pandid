@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" data-diagram="canonical">
+  <polyline points="125,95 167.50,95 167.50,95 210,95" fill="none" stroke="#1e1e1e" stroke-width="2" data-connection="eq-bv-in"/>
+  <polyline points="270,95 312.50,95 312.50,95 355,95" fill="none" stroke="#1e1e1e" stroke-width="2" data-connection="eq-bv-out"/>
+  <rect x="55" y="70" width="70" height="50" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <text x="90" y="154" font-family="sans-serif" font-size="12" fill="#1e1e1e" text-anchor="middle" data-tag="TK-1">TK-1</text>
+  <polygon points="210,80 210,110 240,95" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <polygon points="270,80 270,110 240,95" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <ellipse cx="240" cy="95" rx="8" ry="8" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <text x="240" y="159" font-family="sans-serif" font-size="12" fill="#1e1e1e" text-anchor="middle" data-tag="BV-1">BV-1</text>
+  <rect x="355" y="70" width="70" height="50" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <text x="390" y="154" font-family="sans-serif" font-size="12" fill="#1e1e1e" text-anchor="middle" data-tag="TK-2">TK-2</text>
+</svg>
