@@ -27,11 +27,11 @@ Verified against the live deployment `https://pandid.vercel.app`:
 - **Local gates** — `pnpm vitest run lib/mcp-oauth app/api/mcp/oauth` green;
   lint + typecheck clean.
 
-**Still strictly human (cannot be agent-certified):** completing the OAuth
-click-through in **Claude Desktop** specifically (Settings → Connectors → Add)
-and observing **Connected**. The flow is proven on the identical custom-connector
-path; only the Desktop-build sign-off remains. Do **not** mark DEV-1147 Done from
-an agent run.
+**✅ Desktop sign-off complete (2026-06-25):** a human added the connector in
+**Claude Desktop** (Settings → Connectors → `https://pandid.vercel.app/api/mcp`),
+completed the OAuth click-through, reached **Connected**, and a Desktop tool call
+returned the account-scoped active diagram. All pass criteria met; DEV-1147 moved
+to Done by the human.
 
 ## What the agent built (automatable, already green)
 

@@ -29,11 +29,29 @@ surfaces the 401 on the wire; the migration collision is resolved (DCR =
 - **Local gates** — `pnpm vitest run lib/oauth app/api/mcp/oauth` green; lint +
   typecheck clean.
 
-**Still strictly human (cannot be agent-certified):** Part B (Desktop completes a
-live DCR round-trip while adding the connector and reaches **Connected**) and the
-client-driven half of Part C (Desktop **auto re-registers** after the 401 — a beta
-connector behavior). The server contracts both halves rely on are verified above.
-Do **not** mark DEV-1148 Done from an agent run.
+## ✅ Part B + Part C completed by human (2026-06-25)
+
+- **Part B PASS** — a human added the connector in **Claude Desktop** (Settings →
+  Connectors → `https://pandid.vercel.app/api/mcp`), Desktop completed a live DCR
+  round-trip + OAuth, reached **Connected**, and a tool call returned the
+  account-scoped diagram.
+- **Part C — server contract PASS; Desktop auto-recovery is a beta gap.** The
+  active client + its tokens were revoked server-side (`DELETE FROM oauth_tokens`
+  / `oauth_clients`). On the next Desktop tool call, Desktop did **NOT**
+  auto-re-register on the `401 invalid_client` — it surfaced a **hard error
+  requiring a manual connector re-add** (the beta limitation PRD §9 anticipated).
+  After a manual remove + re-add, Desktop performed a clean DCR (a **fresh
+  `client_id`**) + OAuth and recovered — verified in `oauth_clients` (new rows at
+  19:51 with fresh token pairs). The server-side `401 invalid_client` signal
+  itself is correct (verified by direct token-endpoint call: unknown client →
+  401 `invalid_client` + `WWW-Authenticate`).
+
+**Disposition:** DEV-1148's deliverables (DCR endpoint, the 401 invalid_client
+re-registration signal) are correct and verified end-to-end; the only unmet
+behavior is Desktop's *automatic* client-side recovery, which is outside this
+codebase (Anthropic Desktop beta). Mitigation is the documented manual re-add and
+the isolated API-key transport fallback (`lib/claude-transport/`). Closed by the
+human on that basis.
 
 This task is `risk:platform`: custom-connector DCR behavior is beta on consumer
 plans and Anthropic has changed connector/OAuth rules repeatedly in 2026 (PRD §9
