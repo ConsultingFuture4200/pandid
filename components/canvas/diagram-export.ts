@@ -13,17 +13,36 @@ import { renderDiagramSvg, diagramSvgInner } from "@/lib/diagram/render-svg";
 import { getSymbol, type SymbolId } from "@/lib/symbols";
 import { renderSheetSvg } from "@/lib/sheet/render-sheet";
 import { defaultSheetMetadata } from "@/lib/sheet/types";
-import type { ExportLineRow } from "@/lib/export/serializers";
+import type {
+  ExportEquipmentRow,
+  ExportLineRow,
+} from "@/lib/export/serializers";
+import type { JsonObject } from "@/lib/types";
 import { placementModelToEdit, type PlacementModel } from "./placement-model";
 
 /** The runtime-free export artifacts derived from a diagram model. */
 export interface DiagramExport {
   /** Line-list rows enriched with each connector's `service` (DEV-1156). */
   readonly lineRows: readonly ExportLineRow[];
+  /** Equipment-schedule rows (one per placed, non-structural equipment). */
+  readonly equipmentRows: readonly ExportEquipmentRow[];
   /** SVG of the diagram, matching the canvas projection (DEV-1157). */
   readonly svg: string;
   /** SVG of the diagram framed in a full drawing sheet (DEV-1201). */
   readonly sheetSvg: string;
+}
+
+/** The string-valued spec attributes for the schedule, excluding `tag` (which is
+ * the row's own column). The metadata store holds strings; this narrows
+ * JsonObject without inventing values. */
+function stringAttributes(attributes: JsonObject): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(attributes)) {
+    if (key !== "tag" && typeof value === "string") {
+      out[key] = value;
+    }
+  }
+  return out;
 }
 
 /** Distinct symbol names used in the model, for the sheet legend (placement
@@ -85,6 +104,18 @@ export function buildDiagramExport(model: PlacementModel): DiagramExport {
     service: serviceByEdge.get(row.elementId) ?? null,
   }));
 
+  // Equipment schedule: one row per placed piece of equipment, excluding
+  // anonymous structural nodes (junction tees). Connectors are not in
+  // `state.equipment` (they are edges), so they are already excluded.
+  const equipmentRows: ExportEquipmentRow[] = state.equipment
+    .filter((eq) => getSymbol(eq.equipmentType).anonymous !== true)
+    .map((eq) => ({
+      tag: eq.tag,
+      type: getSymbol(eq.equipmentType).label,
+      equipmentType: eq.equipmentType,
+      attributes: stringAttributes(eq.attributes),
+    }));
+
   const { inner, width, height } = diagramSvgInner(state.renderState);
   const sheetSvg = renderSheetSvg({
     diagramInner: inner,
@@ -94,5 +125,10 @@ export function buildDiagramExport(model: PlacementModel): DiagramExport {
     legend: diagramLegend(model),
   });
 
-  return { lineRows, svg: renderDiagramSvg(state.renderState), sheetSvg };
+  return {
+    lineRows,
+    equipmentRows,
+    svg: renderDiagramSvg(state.renderState),
+    sheetSvg,
+  };
 }

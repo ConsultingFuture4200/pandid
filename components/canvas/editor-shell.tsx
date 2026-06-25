@@ -48,6 +48,8 @@ import { SheetPanel } from "./sheet-panel";
 import { VersionsPanel } from "./versions-panel";
 import { buildDiagramExport } from "./diagram-export";
 import {
+  equipmentScheduleToCsv,
+  equipmentScheduleToJson,
   lineListToCsv,
   lineListToJson,
   toExcalidrawFile,
@@ -241,6 +243,27 @@ export function EditorShell({
     [diagramName],
   );
 
+  const handleExportEquipment = useCallback(
+    (format: "csv" | "json") => {
+      const { equipmentRows } = buildDiagramExport(pendingModelRef.current);
+      const base = exportSlug(diagramName);
+      if (format === "csv") {
+        downloadText(
+          `${base}-equipment.csv`,
+          equipmentScheduleToCsv(equipmentRows),
+          "text/csv;charset=utf-8",
+        );
+      } else {
+        downloadText(
+          `${base}-equipment.json`,
+          equipmentScheduleToJson(equipmentRows),
+          "application/json",
+        );
+      }
+    },
+    [diagramName],
+  );
+
   const handleExportSvg = useCallback(() => {
     const { svg } = buildDiagramExport(pendingModelRef.current);
     downloadText(`${exportSlug(diagramName)}.svg`, svg, "image/svg+xml");
@@ -391,6 +414,22 @@ export function EditorShell({
                 className="rounded border border-gray-300 px-2 py-1.5 hover:bg-gray-100"
               >
                 Line list (JSON)
+              </button>
+              <button
+                type="button"
+                data-testid="export-equipment-csv"
+                onClick={() => handleExportEquipment("csv")}
+                className="rounded border border-gray-300 px-2 py-1.5 hover:bg-gray-100"
+              >
+                Equipment (CSV)
+              </button>
+              <button
+                type="button"
+                data-testid="export-equipment-json"
+                onClick={() => handleExportEquipment("json")}
+                className="rounded border border-gray-300 px-2 py-1.5 hover:bg-gray-100"
+              >
+                Equipment (JSON)
               </button>
               <button
                 type="button"

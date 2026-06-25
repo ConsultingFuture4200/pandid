@@ -3,9 +3,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  equipmentScheduleToCsv,
+  equipmentScheduleToJson,
   lineListToCsv,
   lineListToJson,
   toExcalidrawFile,
+  type ExportEquipmentRow,
   type ExportLineRow,
 } from "./serializers";
 
@@ -67,6 +70,46 @@ describe("lineListToJson", () => {
       type: "process",
     });
     expect(records[1]).toMatchObject({ type: "signal", service: null });
+  });
+});
+
+const EQUIPMENT: ExportEquipmentRow[] = [
+  {
+    tag: "EX-101",
+    type: "Extraction column",
+    equipmentType: "extraction-column",
+    attributes: { orientation: "vertical", capacity: "10 lb" },
+  },
+  {
+    tag: "HX-201",
+    type: "Heat exchanger",
+    equipmentType: "heat-exchanger",
+    attributes: { duty: "", medium: "glycol, water" },
+  },
+];
+
+describe("equipmentScheduleToCsv", () => {
+  it("numbers rows and renders sorted, non-blank specs; quotes commas", () => {
+    const lines = equipmentScheduleToCsv(EQUIPMENT).split("\n");
+    expect(lines[0]).toBe("item,tag,type,specification");
+    // capacity before orientation (sorted); both shown.
+    expect(lines[1]).toBe("1,EX-101,Extraction column,capacity: 10 lb; orientation: vertical");
+    // blank duty omitted; the comma in the medium value forces quoting.
+    expect(lines[2]).toBe('2,HX-201,Heat exchanger,"medium: glycol, water"');
+  });
+});
+
+describe("equipmentScheduleToJson", () => {
+  it("carries item, tag, type, machine id, and full attributes", () => {
+    const records = JSON.parse(equipmentScheduleToJson(EQUIPMENT));
+    expect(records).toHaveLength(2);
+    expect(records[0]).toEqual({
+      item: 1,
+      tag: "EX-101",
+      type: "Extraction column",
+      equipmentType: "extraction-column",
+      attributes: { orientation: "vertical", capacity: "10 lb" },
+    });
   });
 });
 

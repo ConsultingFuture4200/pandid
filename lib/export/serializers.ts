@@ -30,6 +30,64 @@ function csvField(value: string): string {
   return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
+// ── Equipment schedule (the companion to the line list) ──────────────────────
+
+/** One row of the equipment schedule: a placed piece of equipment with its tag,
+ * human type, and the (string) attributes the metadata store carries. Anonymous
+ * structural nodes (junction tees) and connectors are not equipment and are
+ * excluded by the caller. */
+export interface ExportEquipmentRow {
+  readonly tag: string | null;
+  /** Human symbol label, e.g. "Extraction column". */
+  readonly type: string;
+  /** Machine symbol id, e.g. "extraction-column". */
+  readonly equipmentType: string;
+  /** Non-tag string attributes (capacity, duty, medium, …). */
+  readonly attributes: Readonly<Record<string, string>>;
+}
+
+/** Fixed columns of the exported equipment schedule, in order. */
+const EQUIPMENT_COLUMNS = ["item", "tag", "type", "specification"] as const;
+
+/** The "specification" cell: non-tag, non-blank attributes as "key: value",
+ * sorted by key so the output is deterministic. */
+function specification(attributes: Readonly<Record<string, string>>): string {
+  return Object.keys(attributes)
+    .filter((k) => k !== "tag" && attributes[k].trim() !== "")
+    .sort()
+    .map((k) => `${k}: ${attributes[k]}`)
+    .join("; ");
+}
+
+/**
+ * Serialize the equipment schedule to CSV: a header plus one row per piece of
+ * equipment, numbered, in input (placement) order. RFC-4180 quoting.
+ */
+export function equipmentScheduleToCsv(rows: readonly ExportEquipmentRow[]): string {
+  const header = EQUIPMENT_COLUMNS.join(",");
+  const body = rows.map((row, i) =>
+    [String(i + 1), row.tag ?? "", row.type, specification(row.attributes)]
+      .map(csvField)
+      .join(","),
+  );
+  return [header, ...body].join("\n");
+}
+
+/**
+ * Serialize the equipment schedule to pretty JSON: an array of records carrying
+ * the full structured attributes (so CSV and JSON describe the same equipment).
+ */
+export function equipmentScheduleToJson(rows: readonly ExportEquipmentRow[]): string {
+  const records = rows.map((row, i) => ({
+    item: i + 1,
+    tag: row.tag,
+    type: row.type,
+    equipmentType: row.equipmentType,
+    attributes: row.attributes,
+  }));
+  return JSON.stringify(records, null, 2);
+}
+
 /** The display value for a line-list cell (blank for an absent/null value). */
 function cell(row: ExportLineRow, column: (typeof LINE_LIST_COLUMNS)[number]): string {
   switch (column) {

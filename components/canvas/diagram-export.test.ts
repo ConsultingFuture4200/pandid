@@ -26,6 +26,15 @@ function model(): PlacementModel {
         size: 100,
         attributes: { tag: "T-101", volume: "50L" },
       },
+      // A junction tee — a structural node that must NOT appear in the schedule.
+      {
+        elementId: "j1",
+        symbolId: "junction",
+        x: 150,
+        y: 60,
+        size: 100,
+        attributes: {},
+      },
     ],
     edges: [
       {
@@ -51,6 +60,17 @@ describe("buildDiagramExport", () => {
       service: "product",
       signal: false,
     });
+  });
+
+  it("derives an equipment row per piece of equipment, excluding junctions", () => {
+    const { equipmentRows } = buildDiagramExport(model());
+    expect(equipmentRows).toHaveLength(2); // column + tank, NOT the junction
+    expect(equipmentRows.map((r) => r.tag)).toEqual(["C-101", "T-101"]);
+    const column = equipmentRows.find((r) => r.tag === "C-101");
+    expect(column?.type).toBe("Extraction column");
+    expect(column?.equipmentType).toBe("extraction-column");
+    expect(column?.attributes).toEqual({ capacity: "5L", orientation: "vertical" });
+    expect(equipmentRows.some((r) => r.equipmentType === "junction")).toBe(false);
   });
 
   it("renders a non-empty SVG of the diagram", () => {
