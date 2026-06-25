@@ -438,6 +438,71 @@ const SIGNAL_LINE: SymbolDefinition = {
   ],
 };
 
+// --- Closer reference glyphs (DEV-1213, client-approved) -------------------
+
+/** A domed vertical storage tank: a cylindrical body with an elliptical top head
+ * (the head seam reads at the body top) — distinct from the plain rectangular
+ * `vessel`, for tanks the reference draws as tanks. */
+const STORAGE_TANK: SymbolDefinition = {
+  id: "storage-tank",
+  label: "Storage tank",
+  kind: "equipment",
+  requiredAttributes: [{ key: "volume", label: "Volume", type: "string" }],
+  primitives: [
+    // Top dished head (its lower half overlaps the body top = the head seam).
+    { shape: "ellipse", x: 22, y: 14, width: 56, height: 32 },
+    // Cylindrical body.
+    { shape: "rectangle", x: 22, y: 30, width: 56, height: 52 },
+  ],
+  ports: [
+    { id: "top", x: 50, y: 16 },
+    { id: "bottom", x: 50, y: 82 },
+    { id: "left", x: 22, y: 56 },
+    { id: "right", x: 78, y: 56 },
+  ],
+};
+
+/** ISA centrifugal pump (CID2): a circular casing with a top discharge nozzle on a
+ * baseplate — a clearer pump than the generic circle + nub. */
+const CENTRIFUGAL_PUMP: SymbolDefinition = {
+  id: "centrifugal-pump",
+  label: "Centrifugal pump",
+  kind: "equipment",
+  requiredAttributes: [{ key: "pumpType", label: "Type", type: "string" }],
+  primitives: [
+    // Casing.
+    { shape: "ellipse", x: 25, y: 22, width: 50, height: 50 },
+    // Top discharge nozzle.
+    { shape: "rectangle", x: 45, y: 8, width: 10, height: 16 },
+    // Baseplate.
+    { shape: "line", x: 0, y: 0, width: 0, height: 0, points: [[20, 86], [80, 86]] },
+  ],
+  ports: [
+    { id: "suction", x: 25, y: 47 },
+    { id: "discharge", x: 50, y: 8 },
+  ],
+};
+
+/** Air-operated double-diaphragm pump (AODP): twin diaphragm domes on a shared
+ * body, with side suction/discharge so it sits inline on a run. */
+const AODP: SymbolDefinition = {
+  id: "aodp",
+  label: "AODP (diaphragm) pump",
+  kind: "equipment",
+  requiredAttributes: [{ key: "pumpType", label: "Type", type: "string" }],
+  primitives: [
+    // Twin diaphragm chambers.
+    { shape: "ellipse", x: 12, y: 20, width: 34, height: 34 },
+    { shape: "ellipse", x: 54, y: 20, width: 34, height: 34 },
+    // Shared body.
+    { shape: "rectangle", x: 18, y: 48, width: 64, height: 30 },
+  ],
+  ports: [
+    { id: "suction", x: 18, y: 63 },
+    { id: "discharge", x: 82, y: 63 },
+  ],
+};
+
 /**
  * The standard v1 symbol set, keyed by id. Insertion order is the palette order.
  * Includes two valve symbols (gate + check) to satisfy PRD §6 "Valve (gate/check, ≥2)".
@@ -461,6 +526,9 @@ export const SYMBOL_DEFINITIONS: Readonly<Record<SymbolId, SymbolDefinition>> = 
   "heat-exchanger": HEAT_EXCHANGER,
   "diaphragm-pump": DIAPHRAGM_PUMP,
   "expansion-joint": EXPANSION_JOINT,
+  "storage-tank": STORAGE_TANK,
+  "centrifugal-pump": CENTRIFUGAL_PUMP,
+  aodp: AODP,
   junction: JUNCTION,
   "process-line": PROCESS_LINE,
   "signal-line": SIGNAL_LINE,

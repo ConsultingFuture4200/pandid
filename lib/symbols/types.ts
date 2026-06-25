@@ -32,6 +32,12 @@ export type SymbolId =
   | "diaphragm-pump"
   | "ball-valve"
   | "expansion-joint"
+  // Closer reference glyphs (DEV-1213): a domed storage tank distinct from the
+  // generic vessel, an ISA centrifugal pump (CID2), and an air-operated
+  // double-diaphragm pump (AODP).
+  | "storage-tank"
+  | "centrifugal-pump"
+  | "aodp"
   // A tee/manifold junction — a small bindable dot where pipes branch (DEV-1209).
   | "junction"
   | "process-line"

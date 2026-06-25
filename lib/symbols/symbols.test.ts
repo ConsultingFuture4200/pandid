@@ -54,6 +54,9 @@ const EXPECTED_REQUIRED_KEYS: Readonly<Record<SymbolId, readonly string[]>> = {
   "heat-exchanger": ["duty", "medium"],
   "diaphragm-pump": ["pumpType"],
   "expansion-joint": [],
+  "storage-tank": ["volume"],
+  "centrifugal-pump": ["pumpType"],
+  aodp: ["pumpType"],
   junction: [],
   "process-line": ["service"],
   "signal-line": [],
@@ -73,8 +76,8 @@ function normalizeSvg(svg: string): string {
 }
 
 describe("symbol library — definitions", () => {
-  it("defines the extraction set (21 symbols incl. the DEV-1209 junction, ≥2 valves)", () => {
-    expect(SYMBOL_IDS).toHaveLength(21);
+  it("defines the extraction set (24 symbols incl. the DEV-1213 glyphs, ≥2 valves)", () => {
+    expect(SYMBOL_IDS).toHaveLength(24);
     const valves = SYMBOL_IDS.filter((id) => id.endsWith("-valve"));
     expect(valves.length).toBeGreaterThanOrEqual(2);
   });
