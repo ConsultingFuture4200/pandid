@@ -136,6 +136,31 @@ describe("modelToSceneSkeletons — bound connections (DEV-1193)", () => {
     ]);
   });
 
+  it("collapses a straight auto-route to clean corner-only vertices (DEV-1210)", () => {
+    // Column directly above the tank (same body-centre x) → the orthogonal route
+    // is a single straight vertical run, which the router emits with a duplicate
+    // midpoint. The editable arrow must be a clean 2-point line.
+    // Column body centre (col.x + 50) and tank body centre (tank.x + 50) share x
+    // when col.x === tank.x, so the route is a single straight vertical run.
+    const colAbove: PlacedNode = { ...COLUMN, x: 200, y: 40 };
+    const tankBelow: PlacedNode = { ...TANK, x: 200, y: 260 };
+    const arrow = arrowFor(
+      model({
+        nodes: [colAbove, tankBelow],
+        edges: [{ ...EDGE, sourceElementId: "el-column", targetElementId: "el-tank" }],
+      }),
+      "edge-1",
+    );
+    // No duplicate consecutive points, no collinear mid-vertices.
+    for (let i = 1; i < arrow.points.length; i += 1) {
+      const [px, py] = arrow.points[i - 1];
+      const [qx, qy] = arrow.points[i];
+      expect(px === qx && py === qy).toBe(false);
+    }
+    expectOrthogonal(arrow.points);
+    expect(arrow.points.length).toBe(2); // a straight run is just start → end
+  });
+
   it("routes through explicit waypoints when start+end+waypoints are present (DEV-1210)", () => {
     const arrow = arrowFor(
       model({

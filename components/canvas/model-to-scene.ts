@@ -86,6 +86,46 @@ function nodeSkeletonId(elementId: string, index: number): string {
   return `${elementId}::${index}`;
 }
 
+/**
+ * Collapse an orthogonal route to its essential corner vertices: drop
+ * consecutive duplicate points, then drop any vertex that sits mid-run (collinear
+ * with its axis-aligned neighbours). Keeps the first and last points (the bound
+ * endpoints). The router emits duplicate/collinear points for straight runs;
+ * Excalidraw's point editor needs distinct, corner-only vertices to be editable.
+ */
+function simplifyRoute(points: ReadonlyArray<Point>): Point[] {
+  const EPS = 0.5;
+  const dedup: Point[] = [];
+  for (const p of points) {
+    const last = dedup[dedup.length - 1];
+    if (
+      last !== undefined &&
+      Math.abs(last.x - p.x) <= EPS &&
+      Math.abs(last.y - p.y) <= EPS
+    ) {
+      continue;
+    }
+    dedup.push(p);
+  }
+  if (dedup.length <= 2) {
+    return dedup;
+  }
+  const out: Point[] = [dedup[0]];
+  for (let i = 1; i < dedup.length - 1; i += 1) {
+    const a = out[out.length - 1];
+    const b = dedup[i];
+    const c = dedup[i + 1];
+    const verticalRun = Math.abs(a.x - b.x) <= EPS && Math.abs(b.x - c.x) <= EPS;
+    const horizontalRun = Math.abs(a.y - b.y) <= EPS && Math.abs(b.y - c.y) <= EPS;
+    if (verticalRun || horizontalRun) {
+      continue; // b lies on a straight run — redundant
+    }
+    out.push(b);
+  }
+  out.push(dedup[dedup.length - 1]);
+  return out;
+}
+
 /** The label text drawn under a node: its tag when set, else the symbol name —
  * so a freshly placed-but-untagged symbol still reads (e.g. "Centrifuge") and a
  * tagged one shows its tag (e.g. "C-101"). */
@@ -206,7 +246,12 @@ export function modelToSceneSkeletons(model: PlacementModel): SceneSkeletons {
         ? { point: edge.end, axis: axisOfPoint(nodeBodyBox(target), edge.end) }
         : faceExit(nodeBodyBox(target), nodeCentre(source));
       start = s.point;
-      routePoints = orthogonalRoute(s.point, s.axis, e.point, e.axis);
+      // Clean the route to corner-only vertices before it becomes an editable
+      // arrow: the orthogonal router emits duplicate / collinear points for
+      // axis-aligned runs, and Excalidraw's native point editor mishandles those
+      // (dragging a handle that coincides with another collapses/deletes the
+      // line). Simplifying gives one handle per real corner (DEV-1210).
+      routePoints = simplifyRoute(orthogonalRoute(s.point, s.axis, e.point, e.axis));
     } else {
       const s = edge.start ?? (source ? nodeCentre(source) : undefined);
       const e = edge.end ?? (target ? nodeCentre(target) : undefined);
