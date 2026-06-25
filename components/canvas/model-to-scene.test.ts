@@ -136,6 +136,34 @@ describe("modelToSceneSkeletons — bound connections (DEV-1193)", () => {
     ]);
   });
 
+  it("routes through explicit waypoints when start+end+waypoints are present (DEV-1210)", () => {
+    const arrow = arrowFor(
+      model({
+        edges: [
+          {
+            ...EDGE,
+            start: { x: 105, y: 90 },
+            end: { x: 255, y: 115 },
+            waypoints: [
+              { x: 105, y: 300 },
+              { x: 255, y: 300 },
+            ],
+          },
+        ],
+      }),
+      "edge-1",
+    );
+    // Anchored at start; points pass through both waypoints, relative to start.
+    expect(arrow.x).toBe(105);
+    expect(arrow.y).toBe(90);
+    expect(arrow.points).toEqual([
+      [0, 0],
+      [0, 210],
+      [150, 210],
+      [150, 25],
+    ]);
+  });
+
   it("marks a signal-line edge dashed and a process-line edge solid", () => {
     expect(arrowFor(model(), "edge-1").strokeStyle).toBe("solid");
     const signal = arrowFor(
