@@ -242,12 +242,22 @@ function connectionRoute(
     conn.targetElementId !== undefined
       ? boxById.get(conn.targetElementId) ?? null
       : null;
+  // Every OTHER equipment body is an obstacle to route around (DEV-1210), so a run
+  // bends past vessels instead of drawing through them. The two endpoints' own
+  // boxes are excluded — the pipe legitimately touches them.
+  const obstacles: BodyBox[] = [];
+  for (const [id, b] of boxById) {
+    if (id !== conn.sourceElementId && id !== conn.targetElementId) {
+      obstacles.push(b);
+    }
+  }
   return routeConnectionPoints(
     conn.start,
     sourceBox,
     conn.end,
     targetBox,
     conn.waypoints,
+    obstacles,
   );
 }
 

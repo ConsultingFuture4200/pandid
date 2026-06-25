@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" data-diagram="canonical">
+  <polyline points="125,255 246,255 246,299 455,299 455,255" fill="none" stroke="#1e1e1e" stroke-width="2" data-connection="line-1"/>
+  <rect x="55" y="230" width="70" height="50" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <text x="90" y="314" font-family="sans-serif" font-size="12" fill="#1e1e1e" text-anchor="middle" data-tag="TK-1">TK-1</text>
+  <rect x="260" y="215" width="60" height="70" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <text x="290" y="314" font-family="sans-serif" font-size="12" fill="#1e1e1e" text-anchor="middle" data-tag="V-1">V-1</text>
+  <rect x="455" y="230" width="70" height="50" fill="none" stroke="#1e1e1e" stroke-width="2"/>
+  <text x="490" y="314" font-family="sans-serif" font-size="12" fill="#1e1e1e" text-anchor="middle" data-tag="TK-2">TK-2</text>
+</svg>

@@ -34,7 +34,7 @@ import {
   bodyBoxFromPlacement,
   boxCentre,
   faceExit,
-  orthogonalRoute,
+  routeAvoiding,
   routeOrthogonalBetween,
   type BodyBox,
   type Point,
@@ -246,12 +246,25 @@ export function modelToSceneSkeletons(model: PlacementModel): SceneSkeletons {
         ? { point: edge.end, axis: axisOfPoint(nodeBodyBox(target), edge.end) }
         : faceExit(nodeBodyBox(target), nodeCentre(source));
       start = s.point;
+      // Every OTHER node's body is an obstacle the run bends around (DEV-1210), so
+      // a pipe routes past equipment rather than through it — the same routing the
+      // SVG export uses, so canvas and exported sheet stay identical. The two
+      // endpoints' own bodies are excluded (the pipe meets them at their ports).
+      const obstacles = model.nodes
+        .filter(
+          (other) =>
+            other.elementId !== source.elementId &&
+            other.elementId !== target.elementId,
+        )
+        .map(nodeBodyBox);
       // Clean the route to corner-only vertices before it becomes an editable
-      // arrow: the orthogonal router emits duplicate / collinear points for
-      // axis-aligned runs, and Excalidraw's native point editor mishandles those
-      // (dragging a handle that coincides with another collapses/deletes the
-      // line). Simplifying gives one handle per real corner (DEV-1210).
-      routePoints = simplifyRoute(orthogonalRoute(s.point, s.axis, e.point, e.axis));
+      // arrow: the router emits duplicate / collinear points for axis-aligned
+      // runs, and Excalidraw's native point editor mishandles those (dragging a
+      // handle that coincides with another collapses/deletes the line).
+      // Simplifying gives one handle per real corner (DEV-1210).
+      routePoints = simplifyRoute(
+        routeAvoiding(s.point, s.axis, e.point, e.axis, obstacles),
+      );
     } else {
       const s = edge.start ?? (source ? nodeCentre(source) : undefined);
       const e = edge.end ?? (target ? nodeCentre(target) : undefined);

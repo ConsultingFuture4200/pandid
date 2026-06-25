@@ -169,6 +169,7 @@ export function routeConnectionPoints(
   end: Point,
   targetBox: BodyBox | null,
   waypoints?: readonly Point[],
+  obstacles?: readonly BodyBox[],
 ): readonly Point[] {
   // Explicit waypoints win: the pipe passes through them so a run can be steered
   // through a clear lane (DEV-1210). Callers supply axis-aligned points.
@@ -176,12 +177,235 @@ export function routeConnectionPoints(
     return [start, ...waypoints, end];
   }
   if (sourceBox !== null && targetBox !== null) {
-    return orthogonalRoute(
+    return routeAvoiding(
       start,
       axisOfPoint(sourceBox, start),
       end,
       axisOfPoint(targetBox, end),
+      obstacles ?? [],
     );
   }
   return [start, end];
+}
+
+// --- Obstacle-aware routing (DEV-1210) -------------------------------------
+//
+// The single L/Z route above is the right answer when nothing is in the way. The
+// reference drawings, though, snake pipes AROUND equipment; a straight run that
+// crosses a body box reads as a pipe passing THROUGH the vessel. `routeAvoiding`
+// keeps the cheap L/Z route whenever it is clear (so existing diagrams — and their
+// goldens — are untouched) and only falls back to a multi-bend detour when the
+// direct route would cross an obstacle. Pure + deterministic.
+
+/** Clearance (scene px) a detour keeps from an obstacle body. */
+const ROUTE_CLEARANCE = 14;
+/** Per-bend cost (in px-equivalents) so the search prefers fewer turns. */
+const TURN_PENALTY = 40;
+
+/**
+ * Does the axis-aligned segment a→b pass through `box`'s interior? The box is
+ * inset slightly so a segment running exactly along a face (grazing) does NOT
+ * count — only a real crossing does.
+ */
+export function segmentHitsBox(
+  a: Point,
+  b: Point,
+  box: BodyBox,
+  inset = 0.5,
+): boolean {
+  const minX = box.cx - box.hx + inset;
+  const maxX = box.cx + box.hx - inset;
+  const minY = box.cy - box.hy + inset;
+  const maxY = box.cy + box.hy - inset;
+  if (maxX <= minX || maxY <= minY) {
+    return false;
+  }
+  if (Math.abs(a.y - b.y) < 1e-6) {
+    if (a.y <= minY || a.y >= maxY) {
+      return false;
+    }
+    return Math.max(a.x, b.x) > minX && Math.min(a.x, b.x) < maxX;
+  }
+  if (Math.abs(a.x - b.x) < 1e-6) {
+    if (a.x <= minX || a.x >= maxX) {
+      return false;
+    }
+    return Math.max(a.y, b.y) > minY && Math.min(a.y, b.y) < maxY;
+  }
+  return false; // orthogonal routes have no diagonal segments
+}
+
+/** Does any segment of `points` cross any obstacle body? */
+export function routeHitsObstacles(
+  points: readonly Point[],
+  obstacles: readonly BodyBox[],
+): boolean {
+  for (let i = 0; i + 1 < points.length; i += 1) {
+    for (const o of obstacles) {
+      if (segmentHitsBox(points[i], points[i + 1], o)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Right-angle route between two endpoints that avoids `obstacles`: the cheap L/Z
+ * route when it is clear, else a multi-bend detour found by an A* search over the
+ * grid of obstacle-clearance lines (fewest bends, then shortest). Falls back to
+ * the direct route if no clear path exists (never returns nothing).
+ */
+export function routeAvoiding(
+  start: Point,
+  startAxis: RouteAxis,
+  end: Point,
+  endAxis: RouteAxis,
+  obstacles: readonly BodyBox[],
+): readonly Point[] {
+  const direct = orthogonalRoute(start, startAxis, end, endAxis);
+  if (obstacles.length === 0 || !routeHitsObstacles(direct, obstacles)) {
+    return direct;
+  }
+  const detour = routeAroundObstacles(start, startAxis, end, obstacles);
+  return detour ?? direct;
+}
+
+/**
+ * A* over the orthogonal grid formed by the endpoints and each obstacle's
+ * clearance edges. Returns the corner points of the cheapest bend-minimal path
+ * that crosses no obstacle, or null if the grid admits none. Exported for tests.
+ */
+export function routeAroundObstacles(
+  start: Point,
+  startAxis: RouteAxis,
+  end: Point,
+  obstacles: readonly BodyBox[],
+  clearance = ROUTE_CLEARANCE,
+): readonly Point[] | null {
+  // Candidate coordinate lines: the endpoints plus each obstacle's clearance edges.
+  const xs = sortedUnique([
+    start.x,
+    end.x,
+    ...obstacles.flatMap((o) => [o.cx - o.hx - clearance, o.cx + o.hx + clearance]),
+  ]);
+  const ys = sortedUnique([
+    start.y,
+    end.y,
+    ...obstacles.flatMap((o) => [o.cy - o.hy - clearance, o.cy + o.hy + clearance]),
+  ]);
+  const sx = xs.indexOf(start.x);
+  const sy = ys.indexOf(start.y);
+  const ex = xs.indexOf(end.x);
+  const ey = ys.indexOf(end.y);
+  if (sx < 0 || sy < 0 || ex < 0 || ey < 0) {
+    return null;
+  }
+  const pointAt = (ix: number, iy: number): Point => ({ x: xs[ix], y: ys[iy] });
+  const passable = (a: Point, b: Point): boolean =>
+    !obstacles.some((o) => segmentHitsBox(a, b, o));
+
+  // A* state: grid cell + incoming direction (to price turns). dir: 0 none, 1 h, 2 v.
+  interface State {
+    readonly ix: number;
+    readonly iy: number;
+    readonly dir: 0 | 1 | 2;
+  }
+  const key = (s: State): string => `${s.ix},${s.iy},${s.dir}`;
+  const startDir: 0 | 1 | 2 = startAxis === "h" ? 1 : 2;
+  const startState: State = { ix: sx, iy: sy, dir: startDir };
+  const h = (ix: number, iy: number): number =>
+    Math.abs(xs[ix] - end.x) + Math.abs(ys[iy] - end.y);
+
+  const gScore = new Map<string, number>([[key(startState), 0]]);
+  const cameFrom = new Map<string, State>();
+  // Small grids → a plain array used as a priority queue is fine.
+  const open: { state: State; f: number }[] = [
+    { state: startState, f: h(sx, sy) },
+  ];
+
+  while (open.length > 0) {
+    let bestIdx = 0;
+    for (let i = 1; i < open.length; i += 1) {
+      if (open[i].f < open[bestIdx].f) {
+        bestIdx = i;
+      }
+    }
+    const { state } = open.splice(bestIdx, 1)[0];
+    if (state.ix === ex && state.iy === ey) {
+      return reconstruct(cameFrom, state, key, pointAt);
+    }
+    const g = gScore.get(key(state)) ?? Infinity;
+    const here = pointAt(state.ix, state.iy);
+    const moves: { ix: number; iy: number; dir: 1 | 2 }[] = [
+      { ix: state.ix - 1, iy: state.iy, dir: 1 },
+      { ix: state.ix + 1, iy: state.iy, dir: 1 },
+      { ix: state.ix, iy: state.iy - 1, dir: 2 },
+      { ix: state.ix, iy: state.iy + 1, dir: 2 },
+    ];
+    for (const m of moves) {
+      if (m.ix < 0 || m.ix >= xs.length || m.iy < 0 || m.iy >= ys.length) {
+        continue;
+      }
+      const there = pointAt(m.ix, m.iy);
+      if (!passable(here, there)) {
+        continue;
+      }
+      const step = Math.abs(there.x - here.x) + Math.abs(there.y - here.y);
+      const turn = state.dir !== 0 && state.dir !== m.dir ? TURN_PENALTY : 0;
+      const next: State = { ix: m.ix, iy: m.iy, dir: m.dir };
+      const tentative = g + step + turn;
+      if (tentative < (gScore.get(key(next)) ?? Infinity)) {
+        gScore.set(key(next), tentative);
+        cameFrom.set(key(next), state);
+        open.push({ state: next, f: tentative + h(m.ix, m.iy) });
+      }
+    }
+  }
+  return null;
+}
+
+function sortedUnique(values: readonly number[]): number[] {
+  return [...new Set(values)].sort((a, b) => a - b);
+}
+
+function reconstruct(
+  cameFrom: Map<string, { ix: number; iy: number; dir: 0 | 1 | 2 }>,
+  goal: { ix: number; iy: number; dir: 0 | 1 | 2 },
+  key: (s: { ix: number; iy: number; dir: 0 | 1 | 2 }) => string,
+  pointAt: (ix: number, iy: number) => Point,
+): Point[] {
+  const cells: { ix: number; iy: number }[] = [];
+  let cur: { ix: number; iy: number; dir: 0 | 1 | 2 } | undefined = goal;
+  while (cur !== undefined) {
+    cells.push({ ix: cur.ix, iy: cur.iy });
+    cur = cameFrom.get(key(cur));
+  }
+  cells.reverse();
+  // Cell path → points, dropping any vertex collinear with its neighbours.
+  const raw = cells.map((c) => pointAt(c.ix, c.iy));
+  const out: Point[] = [];
+  for (let i = 0; i < raw.length; i += 1) {
+    const prev = out[out.length - 1];
+    const p = raw[i];
+    if (prev !== undefined && prev.x === p.x && prev.y === p.y) {
+      continue;
+    }
+    out.push(p);
+  }
+  const simplified: Point[] = [];
+  for (let i = 0; i < out.length; i += 1) {
+    if (i > 0 && i < out.length - 1) {
+      const a = simplified[simplified.length - 1];
+      const b = out[i];
+      const c = out[i + 1];
+      const collinearH = a.y === b.y && b.y === c.y;
+      const collinearV = a.x === b.x && b.x === c.x;
+      if (collinearH || collinearV) {
+        continue;
+      }
+    }
+    simplified.push(out[i]);
+  }
+  return simplified;
 }
