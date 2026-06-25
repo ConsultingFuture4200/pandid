@@ -168,7 +168,13 @@ export function routeConnectionPoints(
   sourceBox: BodyBox | null,
   end: Point,
   targetBox: BodyBox | null,
+  waypoints?: readonly Point[],
 ): readonly Point[] {
+  // Explicit waypoints win: the pipe passes through them so a run can be steered
+  // through a clear lane (DEV-1210). Callers supply axis-aligned points.
+  if (waypoints !== undefined && waypoints.length > 0) {
+    return [start, ...waypoints, end];
+  }
   if (sourceBox !== null && targetBox !== null) {
     return orthogonalRoute(
       start,

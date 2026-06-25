@@ -175,6 +175,29 @@ describe("snapshotToPlacementModel round-trip", () => {
     expect(reloaded.sheet).toEqual(sheet);
   });
 
+  it("round-trips connection waypoints through the scene (DEV-1210)", () => {
+    const base = sampleModel();
+    const waypoints = [
+      { x: 300, y: 900 },
+      { x: 40, y: 900 },
+    ];
+    const withWaypoints: PlacementModel = {
+      ...base,
+      edges: base.edges.map((e) => ({ ...e, waypoints })),
+    };
+    const scene = placementModelToScene(withWaypoints);
+    const reloaded = snapshotToPlacementModel({
+      version: {
+        id: "00000000-0000-0000-0000-000000000000",
+        diagramId: "00000000-0000-0000-0000-000000000001",
+        excalidrawScene: scene,
+        createdAt: "2026-06-20T00:00:00.000Z",
+      },
+      metadata: [],
+    });
+    expect(reloaded.edges[0].waypoints).toEqual(waypoints);
+  });
+
   it("projects an empty/legacy scene to the empty model (not an error)", () => {
     const reloaded = snapshotToPlacementModel({
       version: {

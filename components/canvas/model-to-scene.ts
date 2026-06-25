@@ -188,7 +188,17 @@ export function modelToSceneSkeletons(model: PlacementModel): SceneSkeletons {
     // (orphan/partial), fall back to a straight segment between known points.
     let start: Point;
     let routePoints: ReadonlyArray<Point>;
-    if (source !== undefined && target !== undefined) {
+    if (
+      edge.waypoints !== undefined &&
+      edge.waypoints.length > 0 &&
+      edge.start !== undefined &&
+      edge.end !== undefined
+    ) {
+      // Explicit route: pass through the waypoints (DEV-1210), bypassing the
+      // auto-router. The endpoints stay bound so the arrow still tracks drags.
+      start = edge.start;
+      routePoints = [edge.start, ...edge.waypoints, edge.end];
+    } else if (source !== undefined && target !== undefined) {
       const s = edge.start
         ? { point: edge.start, axis: axisOfPoint(nodeBodyBox(source), edge.start) }
         : faceExit(nodeBodyBox(source), nodeCentre(target));

@@ -91,6 +91,9 @@ export interface RenderConnection {
   readonly sourceElementId?: string;
   /** Target equipment element id. See `sourceElementId`. */
   readonly targetElementId?: string;
+  /** Explicit intermediate route points (DEV-1210). When present the route passes
+   * through them (start → waypoints → end) instead of being auto-routed. */
+  readonly waypoints?: readonly Point[];
 }
 
 /** The drawable view of canonical diagram state this renderer consumes. */
@@ -231,7 +234,13 @@ function connectionRoute(
     conn.targetElementId !== undefined
       ? boxById.get(conn.targetElementId) ?? null
       : null;
-  return routeConnectionPoints(conn.start, sourceBox, conn.end, targetBox);
+  return routeConnectionPoints(
+    conn.start,
+    sourceBox,
+    conn.end,
+    targetBox,
+    conn.waypoints,
+  );
 }
 
 /**

@@ -61,6 +61,9 @@ export interface PlacedEdge {
   readonly start?: { readonly x: number; readonly y: number };
   /** Resolved target port point in scene space, if known. */
   readonly end?: { readonly x: number; readonly y: number };
+  /** Explicit intermediate route points (DEV-1210). When set the pipe passes
+   * through them instead of being auto-routed; they lock in place on node drag. */
+  readonly waypoints?: readonly { readonly x: number; readonly y: number }[];
   /** Line attributes (lineId, service, …) for the parallel metadata store. */
   readonly attributes: JsonObject;
 }
@@ -159,6 +162,9 @@ export function placementModelToScene(model: PlacementModel): JsonObject {
         targetElementId: e.targetElementId,
         ...(e.start !== undefined ? { start: e.start } : {}),
         ...(e.end !== undefined ? { end: e.end } : {}),
+        ...(e.waypoints !== undefined && e.waypoints.length > 0
+          ? { waypoints: e.waypoints.map((w) => ({ x: w.x, y: w.y })) }
+          : {}),
         signal: e.symbolId === "signal-line",
       })),
       viewport: model.viewport,
@@ -218,6 +224,9 @@ export function snapshotToPlacementModel(
         targetElementId: c.targetElementId,
         ...(c.start !== undefined ? { start: c.start } : {}),
         ...(c.end !== undefined ? { end: c.end } : {}),
+        ...(c.waypoints !== undefined && c.waypoints.length > 0
+          ? { waypoints: c.waypoints }
+          : {}),
         attributes: attributesById.get(c.elementId) ?? {},
       },
     ];

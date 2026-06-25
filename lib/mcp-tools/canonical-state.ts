@@ -64,6 +64,9 @@ const pidConnectionSchema = z.object({
   start: z.object({ x: z.number(), y: z.number() }).optional(),
   /** Resolved end point (target port), if the canvas computed one. */
   end: z.object({ x: z.number(), y: z.number() }).optional(),
+  /** Explicit intermediate route points the pipe passes through, so a run can be
+   * steered through a clear lane (DEV-1210). Empty/absent → auto-routed. */
+  waypoints: z.array(z.object({ x: z.number(), y: z.number() })).optional(),
   /** Signal (dashed) vs process (solid) line. Defaults to process. */
   signal: z.boolean().default(false),
 });
@@ -266,6 +269,10 @@ export function buildCanonicalState(snapshot: VersionSnapshot): CanonicalState {
               // the joined equipment's body faces (matching the canvas).
               sourceElementId: c.sourceElementId ?? undefined,
               targetElementId: c.targetElementId ?? undefined,
+              // Explicit route points (DEV-1210), if any.
+              ...(c.waypoints !== undefined && c.waypoints.length > 0
+                ? { waypoints: c.waypoints }
+                : {}),
             },
           ]
         : [],

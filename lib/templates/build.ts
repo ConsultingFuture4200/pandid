@@ -86,6 +86,7 @@ export function connect(
   from: EndpointRef,
   to: EndpointRef,
   attributes: JsonObject = {},
+  waypoints?: readonly { readonly x: number; readonly y: number }[],
 ): PlacedEdge {
   return {
     elementId,
@@ -95,5 +96,6 @@ export function connect(
     start: resolvePort(from.ref.symbolId, from.ref.x, from.ref.y, from.ref.size, from.portId),
     end: resolvePort(to.ref.symbolId, to.ref.x, to.ref.y, to.ref.size, to.portId),
     attributes,
+    ...(waypoints !== undefined && waypoints.length > 0 ? { waypoints } : {}),
   };
 }

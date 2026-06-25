@@ -340,6 +340,12 @@ export function PidCanvas({
       if (edge === undefined) {
         return el;
       }
+      // An edge with explicit waypoints is user-routed (DEV-1210): leave its
+      // geometry alone so the waypoints lock in place; Excalidraw still moves the
+      // bound endpoints when a connected node is dragged.
+      if (edge.waypoints !== undefined && edge.waypoints.length > 0) {
+        return el;
+      }
       const sBox = boxFor(edge.sourceElementId);
       const tBox = boxFor(edge.targetElementId);
       if (sBox === undefined || tBox === undefined) {
