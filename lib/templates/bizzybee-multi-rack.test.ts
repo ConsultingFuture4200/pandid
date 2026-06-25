@@ -23,7 +23,12 @@ describe("bizzybee multi-rack template", () => {
     expect(valves).toHaveLength(12);
   });
 
-  it("closes the recovery loop back to the solvent tank", () => {
+  it("tees each column off the manifold with an inlet + outlet junction", () => {
+    const junctions = model.nodes.filter((nn) => nn.symbolId === "junction");
+    expect(junctions).toHaveLength(12); // one inlet + one outlet per column
+  });
+
+  it("closes the recovery loop back to the solvent tank with a waypointed route", () => {
     const condenser = model.nodes.find((n) => n.attributes.tag === "CD-101");
     const tank = model.nodes.find((n) => n.attributes.tag === "ST-101");
     expect(condenser).toBeDefined();
@@ -34,6 +39,8 @@ describe("bizzybee multi-rack template", () => {
         e.targetElementId === tank?.elementId,
     );
     expect(returnEdge).toBeDefined();
+    // The return is steered around the rack via explicit waypoints (DEV-1210).
+    expect(returnEdge?.waypoints?.length).toBeGreaterThanOrEqual(2);
   });
 
   it("carries the multi-rack title block", () => {
