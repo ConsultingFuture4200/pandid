@@ -3,9 +3,13 @@
 
 import type { DiagramTemplate, TemplateSummary } from "./types";
 import { ETHANOL_EXTRACTION_TEMPLATE } from "./ethanol-extraction";
+import { BIZZYBEE_MULTI_RACK_TEMPLATE } from "./bizzybee-multi-rack";
 
 /** All templates, in gallery display order. */
-export const TEMPLATES: readonly DiagramTemplate[] = [ETHANOL_EXTRACTION_TEMPLATE];
+export const TEMPLATES: readonly DiagramTemplate[] = [
+  ETHANOL_EXTRACTION_TEMPLATE,
+  BIZZYBEE_MULTI_RACK_TEMPLATE,
+];
 
 /** Look up a template by id, or `null` if there is no such template. */
 export function getTemplate(id: string): DiagramTemplate | null {
