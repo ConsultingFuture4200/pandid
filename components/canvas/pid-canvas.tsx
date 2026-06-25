@@ -49,6 +49,7 @@ import {
 import {
   addEdge,
   buildManualEdge,
+  nodePortPoints,
   type ConnectorSymbolId,
 } from "./manual-connect";
 import type { PlacedNode, PlacementModel } from "./placement-model";
@@ -64,6 +65,11 @@ function isConnectorId(id: SymbolId): id is ConnectorSymbolId {
 const PLACE_STEP = 40;
 /** Default footprint of a freshly placed symbol (matches the symbol render box). */
 const PLACE_SIZE = 100;
+
+/** Accent for the connect-mode overlay (matches the hint banner's blue-600). */
+const CONNECT_HIGHLIGHT = "#2563eb";
+/** Radius (scene px) of a port marker dot shown on a picked source (DEV-1254). */
+const PORT_MARKER_R = 5;
 
 interface PidCanvasProps {
   /** The committed model to initialize the canvas from (server-loaded). */
@@ -171,22 +177,89 @@ export function PidCanvas({
   const [sourcePicked, setSourcePicked] = useState(false);
   const connectModeRef = useRef<ConnectorSymbolId | null>(null);
   const pendingSourceRef = useRef<string | null>(null);
+  // Scene ids of the transient connect-mode overlay (source highlight + port
+  // markers, DEV-1254). These are LOCKED, non-model scene elements — never saved
+  // (Save serializes the model, not the scene) — tracked by id so they can be
+  // stripped when the connection completes, the tool re-arms, or it is dismissed.
+  const overlayIdsRef = useRef<string[]>([]);
 
-  const enterConnectMode = useCallback((connector: ConnectorSymbolId) => {
-    connectModeRef.current = connector;
-    pendingSourceRef.current = null;
-    setConnectMode(connector);
-    setSourcePicked(false);
-    // Start from a clean selection so the first equipment click is unambiguous.
-    apiRef.current?.updateScene({ appState: { selectedElementIds: {} } });
+  // Remove the connect-mode overlay from the scene, if any. Safe to call when
+  // there is none.
+  const clearConnectOverlay = useCallback(() => {
+    const api = apiRef.current;
+    if (api === null || overlayIdsRef.current.length === 0) {
+      return;
+    }
+    const ids = new Set(overlayIdsRef.current);
+    overlayIdsRef.current = [];
+    api.updateScene({
+      elements: api.getSceneElements().filter((el) => !ids.has(el.id)),
+    });
   }, []);
+
+  // Draw the overlay on a picked SOURCE node: a highlight ring plus a dot on each
+  // of its ports, so the human sees what is selected and where a line will snap
+  // (DEV-1254). Elements are locked so they never intercept the target click.
+  const showConnectOverlay = useCallback((node: PlacedNode) => {
+    const api = apiRef.current;
+    if (api === null) {
+      return;
+    }
+    const skeletons: ExcalidrawElementSkeleton[] = [
+      {
+        type: "rectangle",
+        x: node.x - 8,
+        y: node.y - 8,
+        width: node.size + 16,
+        height: node.size + 16,
+        strokeColor: CONNECT_HIGHLIGHT,
+        backgroundColor: "transparent",
+        strokeWidth: 2,
+        roughness: 0,
+        roundness: null,
+      } as ExcalidrawElementSkeleton,
+      ...nodePortPoints(node).map(
+        (p) =>
+          ({
+            type: "ellipse",
+            x: p.x - PORT_MARKER_R,
+            y: p.y - PORT_MARKER_R,
+            width: PORT_MARKER_R * 2,
+            height: PORT_MARKER_R * 2,
+            strokeColor: CONNECT_HIGHLIGHT,
+            backgroundColor: CONNECT_HIGHLIGHT,
+            fillStyle: "solid",
+            roughness: 0,
+          }) as ExcalidrawElementSkeleton,
+      ),
+    ];
+    const created = convertToExcalidrawElements(skeletons).map(
+      (el) => ({ ...el, locked: true }) as OrderedExcalidrawElement,
+    );
+    overlayIdsRef.current = created.map((el) => el.id);
+    api.updateScene({ elements: [...api.getSceneElements(), ...created] });
+  }, []);
+
+  const enterConnectMode = useCallback(
+    (connector: ConnectorSymbolId) => {
+      connectModeRef.current = connector;
+      pendingSourceRef.current = null;
+      clearConnectOverlay();
+      setConnectMode(connector);
+      setSourcePicked(false);
+      // Start from a clean selection so the first equipment click is unambiguous.
+      apiRef.current?.updateScene({ appState: { selectedElementIds: {} } });
+    },
+    [clearConnectOverlay],
+  );
 
   const cancelConnectMode = useCallback(() => {
     connectModeRef.current = null;
     pendingSourceRef.current = null;
+    clearConnectOverlay();
     setConnectMode(null);
     setSourcePicked(false);
-  }, []);
+  }, [clearConnectOverlay]);
 
   // Render a committed model onto the canvas (once the API is available),
   // rebuilding the scene-element → node map from scratch (server-authoritative).
@@ -403,16 +476,21 @@ export function PidCanvas({
       if (nodeId === null) {
         return; // empty/multiple/edge selection — keep waiting.
       }
+      const model = modelRef.current;
       if (pendingSourceRef.current === null) {
+        // First click: capture the source and show its highlight + port markers.
         pendingSourceRef.current = nodeId;
         setSourcePicked(true);
+        const sourceNode = model.nodes.find((n) => n.elementId === nodeId);
+        if (sourceNode !== undefined) {
+          showConnectOverlay(sourceNode);
+        }
         return; // source captured; wait for the target.
       }
       if (nodeId === pendingSourceRef.current) {
         return; // same node re-selected; a connection needs two distinct nodes.
       }
       const connector = connectModeRef.current;
-      const model = modelRef.current;
       const source = model.nodes.find(
         (n) => n.elementId === pendingSourceRef.current,
       );
@@ -431,11 +509,19 @@ export function PidCanvas({
       });
       const next = addEdge(model, edge);
       modelRef.current = next;
-      cancelConnectMode();
+      // Re-arm for the next line (DEV-1254): keep the tool armed and reset only the
+      // source. Clear the selection FIRST so the re-render's onChange does not see
+      // the just-clicked target and capture it as the next source; renderModel then
+      // rebuilds the scene from the model, dropping the transient overlay (so just
+      // forget its ids — no extra updateScene needed).
+      overlayIdsRef.current = [];
+      pendingSourceRef.current = null;
+      setSourcePicked(false);
+      apiRef.current?.updateScene({ appState: { selectedElementIds: {} } });
       renderModel(next);
       onModelChange(next);
     },
-    [cancelConnectMode, onModelChange, renderModel],
+    [cancelConnectMode, onModelChange, renderModel, showConnectOverlay],
   );
 
   const handleChange = useCallback(
@@ -544,8 +630,8 @@ export function PidCanvas({
     connectMode === null
       ? null
       : !sourcePicked
-        ? `Connecting (${getSymbol(connectMode).label}) — click the SOURCE equipment.`
-        : `Click the TARGET equipment to finish the connection.`;
+        ? `Connecting (${getSymbol(connectMode).label}) — click a SOURCE element. Stays on for multiple lines; Esc when done.`
+        : `Click a TARGET element — the line snaps to the nearest ports. Esc when done.`;
 
   return (
     <div className="flex h-full w-full">
@@ -564,7 +650,7 @@ export function PidCanvas({
                 onClick={cancelConnectMode}
                 className="rounded bg-blue-500 px-2 py-0.5 text-xs hover:bg-blue-400"
               >
-                Cancel (Esc)
+                Done (Esc)
               </button>
             </div>
           </div>

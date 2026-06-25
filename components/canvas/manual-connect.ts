@@ -157,3 +157,18 @@ export function addEdge(
 ): PlacementModel {
   return { ...model, edges: [...model.edges, edge] };
 }
+
+/**
+ * Scene-space points of every port on a node — the markers the canvas shows on a
+ * picked source while connecting, so the human sees where a line will snap
+ * (DEV-1254). Reuses `portScenePoint` (the same geometry `buildManualEdge`
+ * anchors to), so a marker sits exactly where a connection would attach. Pure.
+ */
+export function nodePortPoints(
+  node: PlacedNode,
+): { readonly x: number; readonly y: number }[] {
+  const equip = toEquipment(node);
+  return getSymbol(node.symbolId).ports.map((p) =>
+    portScenePoint({ element: equip, portId: p.id }),
+  );
+}

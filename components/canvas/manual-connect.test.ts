@@ -10,6 +10,7 @@ import {
   addEdge,
   buildManualEdge,
   defaultConnectorAttributes,
+  nodePortPoints,
   pickNearestPorts,
 } from "./manual-connect";
 import type { PlacedNode, PlacementModel } from "./placement-model";
@@ -48,6 +49,20 @@ describe("pickNearestPorts", () => {
       sourcePortId: "left",
       targetPortId: "right",
     });
+  });
+});
+
+describe("nodePortPoints", () => {
+  it("returns every port in scene space, in symbol port order", () => {
+    // extraction-column ports top(50,10) bottom(50,90) left(35,50) right(65,50)
+    // at origin (40,40) size 100 → scene points below; markers must sit exactly
+    // where a connection would attach (same geometry buildManualEdge uses).
+    expect(nodePortPoints(COLUMN)).toEqual([
+      { x: 90, y: 50 },
+      { x: 90, y: 130 },
+      { x: 75, y: 90 },
+      { x: 105, y: 90 },
+    ]);
   });
 });
 
