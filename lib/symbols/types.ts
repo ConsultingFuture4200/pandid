@@ -32,6 +32,8 @@ export type SymbolId =
   | "diaphragm-pump"
   | "ball-valve"
   | "expansion-joint"
+  // A tee/manifold junction — a small bindable dot where pipes branch (DEV-1209).
+  | "junction"
   | "process-line"
   | "signal-line";
 
@@ -96,6 +98,10 @@ export interface SymbolDefinition {
   readonly primitives: readonly SymbolPrimitive[];
   /** Bind points. Connectors expose endpoint ports; equipment exposes side ports. */
   readonly ports: readonly SymbolPort[];
+  /** Carries no identity tag/lineId — a structural node like a junction dot, not
+   * labeled equipment. Such a node is exempt from the identity-field validation
+   * rule (DEV-1209). Defaults to false (identity required). */
+  readonly anonymous?: boolean;
 }
 
 /** Public shape returned by `listEquipmentTypes` / the `list_equipment_types` MCP tool. */

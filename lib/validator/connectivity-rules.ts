@@ -176,6 +176,12 @@ export const requiredAttributesRule: ValidationRule = {
       const definition = SYMBOL_DEFINITIONS[element.equipmentType];
       const attributes = metaMap.get(element.id)?.attributes ?? {};
 
+      // Anonymous structural nodes (e.g. a junction tee) carry no identity tag
+      // and no attributes — nothing to require (DEV-1209).
+      if (definition.anonymous === true) {
+        continue;
+      }
+
       // Implicit identity field.
       const identityKey = identityKeyFor(element.equipmentType);
       if (!nonEmptyString(attributes[identityKey])) {

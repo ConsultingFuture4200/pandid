@@ -391,6 +391,23 @@ const EXPANSION_JOINT: SymbolDefinition = {
   ],
 };
 
+const JUNCTION: SymbolDefinition = {
+  id: "junction",
+  label: "Junction / tee",
+  kind: "equipment",
+  // A structural branch point, not labeled equipment: no tag, no attributes.
+  anonymous: true,
+  requiredAttributes: [],
+  // A small dot centred in the local box; bindable (ellipse) so pipes attach.
+  primitives: [{ shape: "ellipse", x: 44, y: 44, width: 12, height: 12 }],
+  ports: [
+    { id: "top", x: 50, y: 44 },
+    { id: "bottom", x: 50, y: 56 },
+    { id: "left", x: 44, y: 50 },
+    { id: "right", x: 56, y: 50 },
+  ],
+};
+
 const PROCESS_LINE: SymbolDefinition = {
   id: "process-line",
   label: "Process line",
@@ -443,6 +460,7 @@ export const SYMBOL_DEFINITIONS: Readonly<Record<SymbolId, SymbolDefinition>> = 
   "heat-exchanger": HEAT_EXCHANGER,
   "diaphragm-pump": DIAPHRAGM_PUMP,
   "expansion-joint": EXPANSION_JOINT,
+  junction: JUNCTION,
   "process-line": PROCESS_LINE,
   "signal-line": SIGNAL_LINE,
 };
