@@ -55,23 +55,28 @@ function multiRackSheet(): SheetMetadata {
 }
 
 function buildModel(): PlacementModel {
-  // Column rack geometry: COLUMN_COUNT columns in a row, inlet valves above,
-  // outlet valves below.
-  const colY = 420;
-  const inletY = 300;
-  const outletY = 600;
-  const colX = (i: number) => 380 + i * 160;
+  // Column rack geometry. Each column is offset so its top/bottom centre port
+  // sits DIRECTLY under the valve's right port (a ball valve's ports are its
+  // left/right tips): column.x = valve.x + 30 makes column-centre (x+50) align
+  // with the valve right tip (x+80). That turns every valve→column drop into a
+  // clean vertical line instead of a dog-leg back through the valve body.
+  const inletY = 320;
+  const colY = 460;
+  const outletY = 640;
+  const valveX = (i: number) => 480 + i * 210;
+  const colX = (i: number) => valveX(i) + 30;
 
-  // ── Solvent supply train (top-left): tank → chiller (pre-cool) → feed pump
-  const solventTank = place("eq-solvent-tank", "vessel", 100, 120, {
+  // ── Solvent supply train (top-left): tank → chiller (pre-cool) → feed pump.
+  // Kept clear of the return lane (a vertical line down the far left at x≈170).
+  const solventTank = place("eq-solvent-tank", "vessel", 120, 130, {
     tag: "ST-101",
   });
-  const chiller = place("eq-chiller", "chiller", 280, 130, {
+  const chiller = place("eq-chiller", "chiller", 250, 140, {
     tag: "CH-101",
     duty: "",
     medium: "",
   });
-  const feedPump = place("eq-feed-pump", "diaphragm-pump", 460, 130, {
+  const feedPump = place("eq-feed-pump", "diaphragm-pump", 360, 140, {
     tag: "P-101",
     pumpType: "AODP",
   });
@@ -90,40 +95,43 @@ function buildModel(): PlacementModel {
       }),
     );
     inletValves.push(
-      place(`eq-bv-in-${n}`, "ball-valve", colX(i), inletY, {
+      place(`eq-bv-in-${n}`, "ball-valve", valveX(i), inletY, {
         tag: `BV-${n}`,
         valveType: "ball",
       }),
     );
     outletValves.push(
-      place(`eq-bv-out-${n}`, "ball-valve", colX(i), outletY, {
+      place(`eq-bv-out-${n}`, "ball-valve", valveX(i), outletY, {
         tag: `BV-${COLUMN_COUNT + n}`,
         valveType: "ball",
       }),
     );
   }
 
-  // ── Recovery train (bottom): cauldron → pump → filter → EPR vessel → condenser
-  const cauldron = place("eq-cauldron", "collection-tank", 180, 780, {
+  // ── Recovery train along the bottom: cauldron → pump → filter → EPR vessel →
+  // condenser. The condenser sits low so the recovered-ethanol return line back
+  // to the solvent tank crosses in the clear band BELOW the columns (between the
+  // column bottoms and the outlet valves), not through the column bodies.
+  const cauldron = place("eq-cauldron", "collection-tank", 220, 980, {
     tag: "COL-101",
     volume: "",
   });
-  const transferPump = place("eq-transfer-pump", "diaphragm-pump", 400, 790, {
+  const transferPump = place("eq-transfer-pump", "diaphragm-pump", 470, 990, {
     tag: "P-102",
     pumpType: "AODP",
   });
-  const filter = place("eq-filter", "filter", 580, 780, {
+  const filter = place("eq-filter", "filter", 660, 980, {
     tag: "F-101",
     micronRating: "",
   });
-  const recoveryVessel = place("eq-recovery-vessel", "vessel", 780, 780, {
+  const recoveryVessel = place("eq-recovery-vessel", "vessel", 880, 980, {
     tag: "RV-101",
   });
-  const condenser = place("eq-condenser", "condenser", 1010, 780, {
+  const condenser = place("eq-condenser", "condenser", 1120, 980, {
     tag: "CD-101",
     duty: "",
   });
-  const crudeTank = place("eq-crude-tank", "collection-tank", 780, 960, {
+  const crudeTank = place("eq-crude-tank", "collection-tank", 880, 1160, {
     tag: "CV-101",
     volume: "",
   });
@@ -178,7 +186,7 @@ function buildModel(): PlacementModel {
   return {
     nodes,
     edges,
-    viewport: { width: 1800, height: 1120 },
+    viewport: { width: 1760, height: 1320 },
     sheet: multiRackSheet(),
   };
 }
