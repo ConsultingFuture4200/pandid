@@ -5,6 +5,34 @@
 > Completing the verification below requires a human with Claude Desktop driving
 > the real OAuth click-through. Do not mark DEV-1147 done until every step passes.
 
+## ✅ Live prod verification (2026-06-25) — automatable + live-observable parts PASS
+
+Verified against the live deployment `https://pandid.vercel.app`:
+
+- **Discovery** — `/.well-known/oauth-authorization-server` and
+  `/.well-known/oauth-protected-resource` serve correct RFC 8414 / RFC 9728
+  documents; `registration_endpoint` advertises `/api/oauth/register`.
+- **MCP challenge** — `POST /api/mcp` with no token → **401** +
+  `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource"`
+  (the RFC 9728 challenge that starts the connector OAuth+DCR flow).
+- **Token → account resolution** — a live custom connector (claude.ai, the same
+  Streamable-HTTP OAuth+DCR path as Desktop) is **Connected** and a
+  `get_active_diagram` MCP call returned **this account's** active diagram
+  (structured equipment + connections + server SVG). This exercises bearer-token
+  validation and account scoping end-to-end on prod.
+- **Integration gap closed** — the `/login?next=` hand-back the flow depends on
+  (flagged below) is now implemented: `app/(auth)/login/page.tsx` reads `next`,
+  `safeNextPath` guards open-redirect, and `app/(auth)/actions.ts` honors it
+  post-login. The "ensure already logged in" workaround is no longer required.
+- **Local gates** — `pnpm vitest run lib/mcp-oauth app/api/mcp/oauth` green;
+  lint + typecheck clean.
+
+**Still strictly human (cannot be agent-certified):** completing the OAuth
+click-through in **Claude Desktop** specifically (Settings → Connectors → Add)
+and observing **Connected**. The flow is proven on the identical custom-connector
+path; only the Desktop-build sign-off remains. Do **not** mark DEV-1147 Done from
+an agent run.
+
 ## What the agent built (automatable, already green)
 
 - `lib/mcp-oauth/` — the OAuth 2.0 authorization-code + PKCE provider:

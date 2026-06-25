@@ -9,6 +9,32 @@
 > **deleted client triggers a real re-registration** — is something no agent can
 > perform. The loop **STOPS** here. Do NOT self-certify this task as done.
 
+## ✅ Live prod verification (2026-06-25) — Part A + Part C server-side PASS
+
+Verified against the live deployment `https://pandid.vercel.app`. The integration
+the dependency note below calls for is **done**: the token endpoint imports
+`getDcrService().assertClientValid()` (`app/api/mcp/oauth/token/route.ts`) and
+surfaces the 401 on the wire; the migration collision is resolved (DCR =
+`0003_oauth_clients`, DEV-1147 = `0004_mcp_oauth` — no duplicate `oauth_clients`).
+
+- **Part A — DCR over raw HTTP (PASS):**
+  - confidential client → **201** + `client_secret`, `grant_types:["authorization_code"]`,
+    `token_endpoint_auth_method:"client_secret_basic"`.
+  - public/PKCE client (`token_endpoint_auth_method:"none"`) → **201**, **no** secret.
+  - missing `redirect_uris` → **400** `invalid_redirect_uri`.
+- **Part C — 401 re-registration contract, server side (PASS):** a token-endpoint
+  exchange for an unknown/revoked `client_id` → **HTTP 401** `invalid_client` with
+  `WWW-Authenticate: Bearer error="invalid_client"` and a "re-register then retry"
+  description (RFC 6749 §5.2 — the exact signal Desktop reads).
+- **Local gates** — `pnpm vitest run lib/oauth app/api/mcp/oauth` green; lint +
+  typecheck clean.
+
+**Still strictly human (cannot be agent-certified):** Part B (Desktop completes a
+live DCR round-trip while adding the connector and reaches **Connected**) and the
+client-driven half of Part C (Desktop **auto re-registers** after the 401 — a beta
+connector behavior). The server contracts both halves rely on are verified above.
+Do **not** mark DEV-1148 Done from an agent run.
+
 This task is `risk:platform`: custom-connector DCR behavior is beta on consumer
 plans and Anthropic has changed connector/OAuth rules repeatedly in 2026 (PRD §9
 risk row). The transport stays isolated so the API-key fallback remains additive.
