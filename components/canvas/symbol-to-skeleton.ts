@@ -52,6 +52,11 @@ function primitiveToSkeleton(
   size: number,
 ): ExcalidrawElementSkeleton {
   const strokeStyle = p.dashed ? "dashed" : "solid";
+  // Solid-filled primitives (e.g. a junction tee dot) get a solid background;
+  // Excalidraw needs both a backgroundColor and a fillStyle to render a fill.
+  const fill = p.filled
+    ? ({ backgroundColor: "#1e1e1e", fillStyle: "solid" } as const)
+    : {};
 
   if (p.shape === "line" || p.shape === "triangle") {
     const pts = p.points ?? [];
@@ -76,6 +81,7 @@ function primitiveToSkeleton(
       y: ay,
       points: rel,
       strokeStyle,
+      ...fill,
       ...TECHNICAL_SHAPE_STYLE,
     };
   }
@@ -87,6 +93,7 @@ function primitiveToSkeleton(
     width: (p.width / LOCAL_BOX) * size,
     height: (p.height / LOCAL_BOX) * size,
     strokeStyle,
+    ...fill,
     ...TECHNICAL_SHAPE_STYLE,
   };
 }

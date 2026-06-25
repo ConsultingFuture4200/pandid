@@ -127,6 +127,14 @@ function strokeAttrs(dashed: boolean): string {
   return `fill="none" stroke="${STROKE}" stroke-width="${STROKE_WIDTH}"${dash}`;
 }
 
+/** Like {@link strokeAttrs} but for symbol primitives, which may be solid-filled
+ * (e.g. a junction tee dot). */
+function primitiveAttrs(dashed: boolean, filled: boolean): string {
+  const dash = dashed ? ` stroke-dasharray="${DASH}"` : "";
+  const fill = filled ? STROKE : "none";
+  return `fill="${fill}" stroke="${STROKE}" stroke-width="${STROKE_WIDTH}"${dash}`;
+}
+
 /**
  * Render one symbol primitive, offset to `origin` and scaled to `size`. Mirrors
  * the local-box renderer in lib/symbols/render-svg, but in placed scene space.
@@ -136,7 +144,7 @@ function renderPrimitive(
   origin: { x: number; y: number },
   size: number,
 ): string {
-  const attrs = strokeAttrs(p.dashed === true);
+  const attrs = primitiveAttrs(p.dashed === true, p.filled === true);
   switch (p.shape) {
     case "rectangle": {
       const x = scale(p.x, origin.x, size);

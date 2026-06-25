@@ -398,8 +398,9 @@ const JUNCTION: SymbolDefinition = {
   // A structural branch point, not labeled equipment: no tag, no attributes.
   anonymous: true,
   requiredAttributes: [],
-  // A small dot centred in the local box; bindable (ellipse) so pipes attach.
-  primitives: [{ shape: "ellipse", x: 44, y: 44, width: 12, height: 12 }],
+  // A small solid dot centred in the local box; bindable (ellipse) so pipes
+  // attach. Filled so it reads as a tee, not a tiny vessel/instrument bubble.
+  primitives: [{ shape: "ellipse", x: 44, y: 44, width: 12, height: 12, filled: true }],
   ports: [
     { id: "top", x: 50, y: 44 },
     { id: "bottom", x: 50, y: 56 },

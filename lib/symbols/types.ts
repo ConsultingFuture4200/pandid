@@ -74,6 +74,8 @@ export interface SymbolPrimitive {
   readonly height: number;
   /** Dashed stroke (e.g. signal lines). Defaults to solid. */
   readonly dashed?: boolean;
+  /** Solid-filled shape (e.g. a junction tee dot). Defaults to outline-only. */
+  readonly filled?: boolean;
   /** Polyline points in local space for `line`/`triangle`; required for those shapes. */
   readonly points?: readonly (readonly [number, number])[];
 }

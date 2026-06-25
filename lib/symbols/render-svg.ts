@@ -21,7 +21,8 @@ function fmt(n: number): string {
 
 function renderPrimitive(p: SymbolPrimitive): string {
   const dash = p.dashed ? ` stroke-dasharray="${DASH}"` : "";
-  const common = `fill="none" stroke="${STROKE}" stroke-width="${STROKE_WIDTH}"${dash}`;
+  const fill = p.filled === true ? STROKE : "none";
+  const common = `fill="${fill}" stroke="${STROKE}" stroke-width="${STROKE_WIDTH}"${dash}`;
   switch (p.shape) {
     case "rectangle":
       return `<rect x="${fmt(p.x)}" y="${fmt(p.y)}" width="${fmt(p.width)}" height="${fmt(p.height)}" ${common}/>`;
