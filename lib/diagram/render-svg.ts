@@ -37,7 +37,13 @@ import {
   bodyBoxFromPlacement,
   routeConnectionPoints,
   type BodyBox,
+  type Point,
 } from "./orthogonal-route";
+import {
+  hopPathData,
+  verticalSegments,
+  type VerticalSegment,
+} from "./line-hops";
 
 /** Symbol-library local box edge length; every primitive is authored in 0..100. */
 const LOCAL_BOX = 100;
@@ -208,16 +214,15 @@ function renderEquipment(eq: RenderEquipment): string[] {
 }
 
 /**
- * Render one connection edge. When both endpoints resolve to placed equipment,
- * the edge is routed orthogonally (right angles) against their body faces — the
- * SAME routing the live canvas uses (DEV-1204), so the exported sheet matches
+ * The orthogonal route points for a connection. When both endpoints resolve to
+ * placed equipment, the edge is routed at right angles against their body faces —
+ * the SAME routing the live canvas uses (DEV-1204), so the exported sheet matches
  * what the user drew. Unbound endpoints fall back to a straight segment.
  */
-function renderConnection(
+function connectionRoute(
   conn: RenderConnection,
   boxById: ReadonlyMap<string, BodyBox>,
-): string {
-  const attrs = strokeAttrs(conn.dashed === true);
+): readonly Point[] {
   const sourceBox =
     conn.sourceElementId !== undefined
       ? boxById.get(conn.sourceElementId) ?? null
@@ -226,9 +231,28 @@ function renderConnection(
     conn.targetElementId !== undefined
       ? boxById.get(conn.targetElementId) ?? null
       : null;
-  const route = routeConnectionPoints(conn.start, sourceBox, conn.end, targetBox);
+  return routeConnectionPoints(conn.start, sourceBox, conn.end, targetBox);
+}
+
+/**
+ * Render one connection edge. Where this edge's horizontal segments cross the
+ * vertical segments of OTHER edges, it hops over them (DEV-1208) — a crossing
+ * reads as "no connection". A non-crossing edge stays a plain `<polyline>`, so
+ * diagrams without crossings render byte-identically.
+ */
+function renderConnection(
+  conn: RenderConnection,
+  route: readonly Point[],
+  obstacles: readonly VerticalSegment[],
+): string {
+  const attrs = strokeAttrs(conn.dashed === true);
+  const data = `data-connection="${escapeText(conn.elementId)}"`;
+  const hopped = hopPathData(route, obstacles, fmt);
+  if (hopped !== null) {
+    return `<path d="${hopped}" ${attrs} ${data}/>`;
+  }
   const pts = route.map((p) => `${fmt(p.x)},${fmt(p.y)}`).join(" ");
-  return `<polyline points="${pts}" ${attrs} data-connection="${escapeText(conn.elementId)}"/>`;
+  return `<polyline points="${pts}" ${attrs} ${data}/>`;
 }
 
 /**
@@ -272,7 +296,16 @@ export function diagramSvgInner(state: DiagramRenderState): {
       ),
     ]),
   );
-  const lines = state.connections.map((c) => renderConnection(c, boxById));
+  // Route every connection first, then render each one hopping over the vertical
+  // segments of the OTHERS (DEV-1208), so crossings read as line-jumps.
+  const routes = state.connections.map((c) => connectionRoute(c, boxById));
+  const verticalsByConnection = routes.map(verticalSegments);
+  const lines = state.connections.map((c, i) => {
+    const obstacles = verticalsByConnection.flatMap((vs, j) =>
+      j === i ? [] : vs,
+    );
+    return renderConnection(c, routes[i], obstacles);
+  });
   const bodies = state.equipment.flatMap(renderEquipment);
   return {
     inner: [...lines, ...bodies].join("\n  "),
