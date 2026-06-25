@@ -40,12 +40,6 @@ import { getSymbol, getRequiredAttributes, type SymbolId } from "@/lib/symbols";
 import { EquipmentPalette } from "./equipment-palette";
 import { symbolToSkeletons } from "./symbol-to-skeleton";
 import {
-  arrowEndpoints,
-  arrowInteriorWaypoints,
-  decideWaypointCapture,
-  waypointsKey,
-} from "./waypoint-capture";
-import {
   modelToSceneSkeletons,
   nodeBodyBox,
   nodeLabelSkeleton,
@@ -167,10 +161,6 @@ export function PidCanvas({
   useEffect(() => {
     onModelChangeRef.current = onModelChange;
   }, [onModelChange]);
-  // Baseline for on-canvas waypoint capture (DEV-1210): the edge id + geometry
-  // key seen when a point-edit session began, so merely inspecting an auto-routed
-  // line doesn't lock it — only an actual drag captures.
-  const waypointBaselineRef = useRef<{ id: string; key: string } | null>(null);
 
   // Manual-connect state (DEV-1194). When the human picks a connector from the
   // palette the canvas enters connect mode: the next two equipment clicks become
@@ -448,68 +438,6 @@ export function PidCanvas({
     [cancelConnectMode, onModelChange, renderModel],
   );
 
-  // Capture an on-canvas point-edit of a connection arrow as the edge's
-  // waypoints (DEV-1210). Only a real drag — not merely entering the point
-  // editor — locks the route; persists to the model (which the shell holds for
-  // Save) without re-rendering, so Excalidraw owns the live geometry.
-  const captureWaypointEdit = useCallback(
-    (
-      elements: readonly OrderedExcalidrawElement[],
-      appState: AppState,
-    ): void => {
-      const editing = appState.editingLinearElement;
-      if (editing === null) {
-        waypointBaselineRef.current = null;
-        return;
-      }
-      const arrow = elements.find((el) => el.id === editing.elementId);
-      if (arrow === undefined || arrow.type !== "arrow") {
-        return;
-      }
-      const edge = modelRef.current.edges.find((e) => e.elementId === arrow.id);
-      if (edge === undefined) {
-        return; // the element being point-edited isn't one of our connections
-      }
-      const interior = arrowInteriorWaypoints(arrow.x, arrow.y, arrow.points);
-      const baseline = waypointBaselineRef.current;
-      const baselineKey =
-        baseline !== null && baseline.id === arrow.id ? baseline.key : null;
-      const decision = decideWaypointCapture(baselineKey, interior);
-      if (decision.kind === "snapshot") {
-        waypointBaselineRef.current = { id: arrow.id, key: waypointsKey(interior) };
-        return;
-      }
-      if (decision.kind === "skip") {
-        return;
-      }
-      const waypoints =
-        decision.waypoints.length > 0
-          ? decision.waypoints.map((p) => ({ x: p.x, y: p.y }))
-          : undefined;
-      // Pin the bound endpoints too: the reload router only honours waypoints
-      // when start/end are present, so a route captured without them would be
-      // silently dropped on the next reload for any edge whose ports were not
-      // already resolved (e.g. an MCP-proposed connection).
-      const ends = arrowEndpoints(arrow.x, arrow.y, arrow.points);
-      const nextModel: PlacementModel = {
-        ...modelRef.current,
-        edges: modelRef.current.edges.map((e) =>
-          e.elementId === arrow.id
-            ? {
-                ...e,
-                waypoints,
-                ...(ends !== null ? { start: ends.start, end: ends.end } : {}),
-              }
-            : e,
-        ),
-      };
-      modelRef.current = nextModel;
-      waypointBaselineRef.current = { id: arrow.id, key: waypointsKey(interior) };
-      onModelChangeRef.current(nextModel);
-    },
-    [],
-  );
-
   const handleChange = useCallback(
     (_elements: readonly OrderedExcalidrawElement[], appState: AppState) => {
       // While connecting, selections drive endpoint capture, not the attribute
@@ -520,9 +448,6 @@ export function PidCanvas({
         );
         return;
       }
-      // Capture an in-progress point-edit before reflow, so a now-waypointed edge
-      // is skipped by the orthogonal reflow (DEV-1210 / DEV-1204).
-      captureWaypointEdit(_elements, appState);
       // Keep connections orthogonal when a node is moved (DEV-1204).
       reflowConnections();
       if (onSelectionChange === undefined) {
@@ -535,7 +460,6 @@ export function PidCanvas({
       }
     },
     [
-      captureWaypointEdit,
       handleConnectSelection,
       onSelectionChange,
       reflowConnections,
